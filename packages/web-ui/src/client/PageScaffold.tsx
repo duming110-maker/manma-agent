@@ -32,21 +32,32 @@ export interface BcPageScaffoldProps {
   activeTab: string
   /** Tab switch notification (pages own the state). */
   onTabSelect(tabKey: string): void
+  /**
+   * Page-level actions pinned at the header's right edge (frontend-user page
+   * posture: title block left, CTA right). Rendered by the scaffold so the
+   * CTA keeps a stable slot across tab switches — no layout jump.
+   */
+  actions?: ReactNode
   /** The active tab's content. */
   children: ReactNode
 }
 
 /**
  * The page scaffold (see module doc): header + tab bar + scrollable body.
- * @param props - page identity, copy, tabs, and the body.
+ * @param props - page identity, copy, tabs, optional header actions, and the body.
  * @returns the page element tree.
  */
-export function BcPageScaffold({ pageKey, title, subtitle, tabs, activeTab, onTabSelect, children }: BcPageScaffoldProps) {
+export function BcPageScaffold({ pageKey, title, subtitle, tabs, activeTab, onTabSelect, actions, children }: BcPageScaffoldProps) {
   return (
     <div className="bc-web-ui-page" data-bc-page={pageKey}>
       <header className="bc-web-ui-page-header">
-        <h1 className="bc-web-ui-page-title">{title}</h1>
-        <p className="bc-web-ui-page-subtitle">{subtitle}</p>
+        <div className="bc-web-ui-page-header-copy">
+          <h1 className="bc-web-ui-page-title">{title}</h1>
+          <p className="bc-web-ui-page-subtitle">{subtitle}</p>
+        </div>
+        {actions !== undefined && (
+          <div className="bc-web-ui-page-header-actions" data-bc-page-actions>{actions}</div>
+        )}
       </header>
       <div className="bc-web-ui-page-tabs" role="tablist" aria-label={title}>
         {tabs.map(tab => (
@@ -94,6 +105,54 @@ export function BcPageEmpty({ icon, title, hint }: BcPageEmptyProps) {
       <span className="bc-web-ui-page-empty-icon" aria-hidden="true">{icon}</span>
       <p className="bc-web-ui-page-empty-title" data-bc-page-empty-title>{title}</p>
       {hint !== undefined && <p className="bc-web-ui-page-empty-hint" data-bc-page-empty-hint>{hint}</p>}
+    </div>
+  )
+}
+
+/** Props of the shared confirm modal (delete task / uninstall skill). */
+export interface BcConfirmModalProps {
+  /** Modal heading. */
+  title: string
+  /** Body copy (a single sentence). */
+  message: string
+  /** Confirm button label (e.g. 删除 / 卸载). */
+  confirmLabel: string
+  /** Cancel button label (e.g. 取消). */
+  cancelLabel: string
+  /** Render the confirm button in the error color. */
+  danger?: boolean
+  /** Confirm handler (the modal stays open; the caller closes it). */
+  onConfirm(): void
+  /** Cancel handler. */
+  onCancel(): void
+}
+
+/**
+ * The shared two-button confirm modal (the demo's delete-confirm posture):
+ * centered heading + sentence, cancel left / destructive confirm right.
+ * @param props - heading, copy, button labels, and handlers.
+ * @returns the modal element tree.
+ */
+export function BcConfirmModal({ title, message, confirmLabel, cancelLabel, danger, onConfirm, onCancel }: BcConfirmModalProps) {
+  return (
+    <div className="bc-web-ui-modal" role="alertdialog" aria-modal="true" data-bc-confirm-modal>
+      <div className="bc-web-ui-modal-mask" aria-hidden="true" onClick={onCancel} />
+      <div className="bc-web-ui-modal-panel bc-web-ui-confirm-panel">
+        <div className="bc-web-ui-confirm-body">
+          <span className="bc-web-ui-confirm-title">{title}</span>
+          <p className="bc-web-ui-confirm-message">{message}</p>
+        </div>
+        <footer className="bc-web-ui-modal-foot">
+          <button type="button" className="bc-web-ui-modal-cancel" onClick={onCancel}>{cancelLabel}</button>
+          <button
+            type="button"
+            className={danger ? 'bc-web-ui-modal-primary bc-web-ui-confirm-danger' : 'bc-web-ui-modal-primary'}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </button>
+        </footer>
+      </div>
     </div>
   )
 }

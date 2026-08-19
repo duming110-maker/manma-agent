@@ -15,7 +15,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "types": []
+    "types": ["node"]
   },
   "include": [
     "src"

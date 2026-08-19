@@ -103,14 +103,6 @@ export type UpstreamWorkspaceId = WorkspaceId
  */
 export interface UpstreamFace {
   /**
-   * Select a session as current (ISessions.open): the documented
-   * "switch conversation" channel — the official conversation surface follows
-   * the selection. Unknown ids fail loud (ids here come from the same list
-   * feed, so they are known).
-   * @param sessionId - session to open.
-   */
-  openSession(sessionId: SessionId): void
-  /**
    * Archive a session (IWorkspaces.archiveSession, D13): hidden from every
    * grouping surface, log and accounting slot kept, recoverable, idempotent.
    * The row disappears through the live store echo — no manual refresh.
@@ -119,32 +111,17 @@ export interface UpstreamFace {
    */
   archiveSession(sessionId: SessionId): void
   /**
-   * Start a new task's session in a chosen workspace (D7: no workspace, no
-   * session). Maps to the documented New Session hand-off channel
-   * IWorkspaces.connectWorkspace — which reuses the workspace's live blank
-   * session when one exists (the runtime's auto-blank, exactly the official
-   * anti-duplicate rule) and otherwise mints one through the host
-   * `session.create({ workspaceId })` (cwd = the workspace directory). On
-   * resolution the id is already in the list store and binding()-addressable
-   * (official guarantee), so open + first prompt may follow synchronously.
-   * @param opts - target workspace (must be in the workspace list feed).
-   * @returns the reused or freshly created session id.
-   * @throws when the workspace is unknown or the host create fails
-   * (SessionCreateError / WorkspaceRuntime semantics, kept verbatim).
+   * Start a New Session (IWorkspaces.startSession): connect the current or
+   * recent workspace's blank session and open it — the official New Session
+   * flow. The conversation surface follows the selection.
    */
-  createSession(opts: { workspaceId: WorkspaceId }): Promise<SessionId>
+  newSession(): void
   /**
-   * Send the first (or any subsequent) user message into a session — the
-   * documented per-session verb ISession.prompt with one text part and
-   * 'queue' admission (the official ConversationController.send shape).
-   * Business failures also mirror into the official conversation snapshot
-   * (promptError), so the official surface keeps owning their display.
-   * @param sessionId - a listed session (the createSession resolution
-   * guarantee covers this shell's flow).
-   * @param text - prompt text, sent verbatim as one text block.
-   * @throws when the session is not addressable or the prompt is rejected.
+   * Open the host's native directory picker for a local directory (used for
+   * the skill-install source; IWorkspaces.pickDirectory).
+   * @returns the selected absolute directory path, or null when the user cancels.
    */
-  promptSession(sessionId: SessionId, text: string): Promise<void>
+  pickWorkspaceDirectory(): Promise<string | null>
   /**
    * Rename a session — the documented per-session verb ISession.rename,
    * reached through the ISessions binding (the official ui-workspace
@@ -179,6 +156,51 @@ export interface UpstreamFace {
    * @param id - a registered locale id ('zh' | 'en'); unknown ids fail loud.
    */
   setLocale(id: 'zh' | 'en'): void
+  /**
+   * Switch the active UI theme — ThemeRuntime.setTheme, the official
+   * preference write (persists the theme preference and republishes
+   * `theme/change`, which re-runs this plugin's presenter so the OFFICIAL
+   * conversation surface follows in the same step as the skeleton's own
+   * token table; the official settings appearance row writes through the
+   * same verb).
+   * @param id - a builtin theme id ('light' | 'dark').
+   */
+  setTheme(id: 'light' | 'dark'): void
+  /**
+   * Install a local skill directory into the global or a project skill root
+   * (host `skills.install` through the `/ext` channel).
+   * @param opts - source dir + target (global | project) + workspace path (project only).
+   * @returns the installed skill name + path.
+   */
+  installSkill(opts: { sourcePath: string; target: 'global' | 'project'; workspacePath?: string }): Promise<UpstreamSkillInstallResult>
+  /** List the stored cron tasks (MVP; scheduling lands in P4). */
+  listCronTasks(): Promise<UpstreamCronTask[]>
+  /** Create a cron task (MVP; scheduling lands in P4). */
+  createCronTask(input: { name: string; description: string; cronExpression: string; workspaceId: string; modelName?: string }): Promise<UpstreamCronTask>
+  /** Patch one stored cron task (edit fields / flip the enabled flag). */
+  updateCronTask(input: { id: string; name?: string; description?: string; cronExpression?: string; workspaceId?: string; modelName?: string; enabled?: boolean }): Promise<UpstreamCronTask>
+  /** Remove one stored cron task. */
+  deleteCronTask(id: string): Promise<void>
+  /** Record a manual run of a stored task in the run history. */
+  runCronTask(id: string): Promise<UpstreamCronRun>
+  /** List the recorded runs (newest first). */
+  listCronRuns(): Promise<UpstreamCronRun[]>
+  /**
+   * List the model catalog (host `llm.models` — session-independent groups
+   * across every provider route), flattened to selectable options for the
+   * cron form's model dropdown.
+   */
+  listModels(): Promise<readonly UpstreamModelOption[]>
+  /**
+   * Enumerate the installed skill roots (global + the given project roots),
+   * each row carrying its install scope and on-disk path.
+   * @param workspacePaths - the project roots to scan for project-scoped skills.
+   */
+  listInstalledSkills(workspacePaths: readonly string[]): Promise<UpstreamInstalledSkill[]>
+  /** Remove one installed skill directory (global or project scope). */
+  uninstallSkill(input: { name: string; scope: 'global' | 'project'; workspacePath?: string }): Promise<void>
+  /** Rewrite one installed skill's description frontmatter field. */
+  editSkill(input: { name: string; scope: 'global' | 'project'; workspacePath?: string; description: string }): Promise<void>
 }
 
 /**
@@ -230,6 +252,59 @@ export interface UpstreamSkillEntry {
   modelInvocable: boolean
 }
 
+/** Result of a skill install (host echo of `skills.install`). */
+export interface UpstreamSkillInstallResult {
+  name: string
+  installedPath: string
+}
+
+/** One stored cron task (MVP shape; host capability-core JSON store). */
+export interface UpstreamCronTask {
+  id: string
+  name: string
+  description: string
+  cronExpression: string
+  workspaceId: string
+  modelName: string
+  enabled: boolean
+  createdAt: string
+}
+
+/** One recorded cron run (manual trigger; real scheduling lands in P4). */
+export interface UpstreamCronRun {
+  id: string
+  taskId: string
+  taskName: string
+  triggeredAt: string
+}
+
+/** One selectable model option flattened from the host model catalog. */
+export interface UpstreamModelOption {
+  /** Provider route id (host-side request routing). */
+  provider: string
+  /** Provider-owned model id. */
+  model: string
+  /** Provider-supplied display name. */
+  name: string
+}
+
+/** One installed skill row (global or project install root). */
+export interface UpstreamInstalledSkill {
+  name: string
+  description: string
+  whenToUse: string | undefined
+  modelInvocable: boolean
+  scope: 'global' | 'project'
+  workspacePath: string | undefined
+  installedPath: string
+}
+
+/** The generic `/ext` channel call face (structural; the carrier package is not a dependency). */
+type UpstreamExtCall = (channel: '/ext', endpoint: string, payload: unknown) => Promise<
+  | { ok: true; value: unknown }
+  | { ok: false; error: { code: string; message: string } }
+>
+
 /**
  * Structural view of the official connection service's skills face (iron rule
  * 2: the adapter names the official wire shapes; the carrier package is not a
@@ -249,6 +324,28 @@ interface UpstreamSkillsWireFace {
       | { ok: true; value: { skills: readonly { name: string; description: string; whenToUse?: string; modelInvocable: boolean }[] } }
       | { ok: false; error: { code: string; message: string } }
   }>
+}
+
+/**
+ * The `llm.models` unary call, payload-direct form — the session-independent
+ * model catalog over every registered provider route (the same groups as
+ * `session.models` without a per-session selection). Structural per the
+ * adapter regime; the carrier package is not a dependency.
+ */
+interface UpstreamLlmWireFace {
+  models(payload: Record<string, never>, signal?: AbortSignal): Promise<{
+    rpcId: unknown
+    result:
+      | { ok: true; value: { groups: readonly UpstreamModelGroup[]; failures: readonly { id: string; name: string; message: string }[] } }
+      | { ok: false; error: { code: string; message: string } }
+  }>
+}
+
+/** One provider group of the host model catalog. */
+interface UpstreamModelGroup {
+  id: string
+  name: string
+  models: readonly { id: string; name: string; description?: string }[]
 }
 
 /** One sidebar session row projected from the official feeds. */
@@ -387,6 +484,8 @@ export interface UpstreamWorkspaceOption {
   id: WorkspaceId
   /** Display title (official row title; defaults to the path basename). */
   title: string
+  /** Canonical directory path (official WorkspaceView.path). */
+  path: string
 }
 
 /** The welcome view's whole view of the official workspace domain. */
@@ -413,7 +512,7 @@ export function projectWorkspaceOptions(
 ): UpstreamWorkspaceOptions {
   return {
     loading: !workspaces.baselinesReady,
-    items: workspaces.items.map(item => ({ id: item.workspaceId, title: item.title })),
+    items: workspaces.items.map(item => ({ id: item.workspaceId, title: item.title, path: item.path })),
     recentId: workspaces.recentWorkspaceId,
   }
 }
@@ -483,32 +582,27 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
   const sessions = ctx.sessions satisfies ISessions
   const workspaces = ctx.workspaces satisfies IWorkspaces
   // The connection service (the wire root; the ui-skill/ui-settings-general
-  // `ctx.get('connection') as …` precedent). Only its skills face is named.
-  const skills = (ctx.get('connection') as { api: { skills: UpstreamSkillsWireFace } }).api.skills
+  // `ctx.get('connection') as …` precedent). Only its skills api face and the
+  // generic /ext rpc caller are named.
+  const connection = ctx.get('connection') as {
+    api: { skills: UpstreamSkillsWireFace; llm: UpstreamLlmWireFace }
+    rpc: { call: UpstreamExtCall }
+  }
+  const skills = connection.api.skills
+  const llm = connection.api.llm
+  const extCall = connection.rpc.call
   // The locale service (provided by dsh-client-locale; the Context merge is
   // type-only — never a value import). It doubles as the HostObservable the
   // hooks compartment exposes (getSnapshot + subscribe, structural).
   const locale: LocaleServiceWireFace = ctx.locale
   return {
-    openSession: (sessionId) => { sessions.open(sessionId) },
     archiveSession: (sessionId) => {
       void workspaces.archiveSession(sessionId).catch((reason: unknown) => {
         console.warn('bc-web-ui: archive session rejected:', reason)
       })
     },
-    createSession: ({ workspaceId }) => workspaces.connectWorkspace(workspaceId),
-    promptSession: async (sessionId, text) => {
-      // binding() resolves any listed session (the createSession guarantee
-      // covers this shell's flow); a miss is loud by design.
-      const session = sessions.binding(sessionId)?.session
-      if (session === undefined) {
-        throw new Error(`bc-web-ui: session "${String(sessionId)}" is not addressable`)
-      }
-      const result = await session.prompt([{ type: 'text', text }], 'queue')
-      if (!result.ok) {
-        throw new Error(`bc-web-ui: prompt rejected: ${result.error.code}: ${result.error.message}`)
-      }
-    },
+    pickWorkspaceDirectory: () => workspaces.pickDirectory(),
+    newSession: () => { workspaces.startSession() },
     renameSession: async (sessionId, title) => {
       // Row → session-face hop: rename is a per-session verb (ISession), not
       // a list-service verb; the official ui-workspace wrapper's pattern kept
@@ -537,6 +631,67 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
       }))
     },
     setLocale: (id) => { locale.setLocale(id) },
+    setTheme: (id) => { ctx.theme.setTheme(id) },
+    installSkill: async (opts) => {
+      const result = await extCall('/ext', 'skills.install', opts)
+      if (!result.ok) throw new Error(`bc-web-ui: skills.install rejected: ${result.error.code}: ${result.error.message}`)
+      return result.value as UpstreamSkillInstallResult
+    },
+    listCronTasks: async () => {
+      const result = await extCall('/ext', 'cron.tasks.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: cron.tasks.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; tasks: UpstreamCronTask[] }).tasks
+    },
+    createCronTask: async (input) => {
+      const result = await extCall('/ext', 'cron.tasks.create', input)
+      if (!result.ok) throw new Error(`bc-web-ui: cron.tasks.create rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; task: UpstreamCronTask }).task
+    },
+    updateCronTask: async (input) => {
+      const result = await extCall('/ext', 'cron.tasks.update', input)
+      if (!result.ok) throw new Error(`bc-web-ui: cron.tasks.update rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; task: UpstreamCronTask }).task
+    },
+    deleteCronTask: async (id) => {
+      const result = await extCall('/ext', 'cron.tasks.delete', { id })
+      if (!result.ok) throw new Error(`bc-web-ui: cron.tasks.delete rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    runCronTask: async (id) => {
+      const result = await extCall('/ext', 'cron.tasks.run', { id })
+      if (!result.ok) throw new Error(`bc-web-ui: cron.tasks.run rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; run: UpstreamCronRun }).run
+    },
+    listCronRuns: async () => {
+      const result = await extCall('/ext', 'cron.runs.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: cron.runs.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; runs: UpstreamCronRun[] }).runs
+    },
+    listModels: async () => {
+      const { result } = await llm.models({})
+      if (!result.ok) {
+        throw new Error(`bc-web-ui: llm.models rejected: ${result.error.code}: ${result.error.message}`)
+      }
+      const options: UpstreamModelOption[] = []
+      for (const group of result.value.groups) {
+        for (const model of group.models) {
+          options.push({ provider: group.id, model: model.id, name: model.name || model.id })
+        }
+      }
+      return options
+    },
+    listInstalledSkills: async (workspacePaths) => {
+      const result = await extCall('/ext', 'skills.list', { workspacePaths })
+      if (!result.ok) throw new Error(`bc-web-ui: skills.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; skills: UpstreamInstalledSkill[] }).skills
+    },
+    uninstallSkill: async (input) => {
+      const result = await extCall('/ext', 'skills.uninstall', input)
+      if (!result.ok) throw new Error(`bc-web-ui: skills.uninstall rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    editSkill: async (input) => {
+      const result = await extCall('/ext', 'skills.edit', input)
+      if (!result.ok) throw new Error(`bc-web-ui: skills.edit rejected: ${result.error.code}: ${result.error.message}`)
+    },
     hooks: { locale },
   }
 }

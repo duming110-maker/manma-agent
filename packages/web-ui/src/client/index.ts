@@ -32,6 +32,7 @@ import { createUpstreamFace } from '../adapters/upstream.ts'
 import { BcShellFrame } from './BcShellFrame.tsx'
 import { createBcLayoutFace, type BcLayoutFace } from './layout.ts'
 import { en, zh } from './locale.ts'
+import { RulesMemorySection } from './RulesMemorySection.tsx'
 import { BcThemePresenter } from './theme.ts'
 import { mountShellStyles } from './styles.ts'
 
@@ -49,6 +50,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar': { kind: 'single'; scope: 'root'; owner: BcSidebarOwnerProps }
     /**
+     * The official workspace/session browsing region — declared by ui-sidebar
+     * upstream, re-declared here because ui-sidebar is disabled. Occupied by
+     * the official ui-workspace browser (section header, search, grouped
+     * session list, every workspace dialog). Rendered by the shell frame
+     * instead of a rebuilt workspace/session list (P1-4).
+     */
+    'sidebar.workspaces': { kind: 'single'; scope: 'root'; owner: BcSidebarWorkspacesOwnerProps }
+    /**
      * The center column, across both the no-session hero and a live
      * conversation. OCCUPIED by ui-conversation's ConversationRoot — the
      * official chat surface this shell embeds (D2).
@@ -64,6 +73,21 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * semantics preserved for future shell-level surfaces of our own).
      */
     'shell.overlay': { kind: 'list'; scope: 'root' }
+    /**
+     * The official settings shell seat — declared by ui-sidebar upstream,
+     * re-declared here because ui-sidebar is disabled in the bc profile.
+     * Occupied by ui-settings-general's SettingsRoot (gear trigger + the full
+     * official settings modal: models / credentials / plugin inventory).
+     */
+    'sidebar.settings': { kind: 'single'; scope: 'root'; owner: BcSidebarSettingsOwnerProps }
+    /**
+     * One settings page in the official shell's nav. Declared at runtime by
+     * ui-settings-general's SettingsRoot (a child of `sidebar.settings`); the
+     * type is re-declared here (mirroring the official `settings.section`
+     * contract) because the declaring base package is not in bc's dependency
+     * graph. bc registers its 规则与记忆 section into this slot.
+     */
+    'settings.section': { kind: 'list'; scope: 'root'; owner: BcSettingsSectionOwnerProps }
   }
 }
 
@@ -80,6 +104,22 @@ export interface BcConversationOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop (upstream mirror). */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- deliberate empty owner-share anchor
 export interface BcDetailsOwnerProps {}
+
+/** Official settings seat owner share: the column wide/rail state (upstream SidebarSettingsOwnerProps mirror). */
+export interface BcSidebarSettingsOwnerProps {
+  wide: boolean
+}
+
+/** Official workspace-browser owner share (upstream SidebarSectionOwnerProps mirror). */
+export interface BcSidebarWorkspacesOwnerProps {
+  wide: boolean
+  expandSidebar: () => void
+}
+
+/** Official settings-section owner share (upstream SettingsSectionOwnerProps mirror): the one shell affordance a section receives. */
+export interface BcSettingsSectionOwnerProps {
+  close: () => void
+}
 
 /** Services required by the shell plugin (ui-layout's set + the official data services + the locale registry + the wire root). */
 export const inject = ['slots', 'theme', 'sessions', 'workspaces', 'connection', 'locale']
@@ -119,6 +159,8 @@ export function apply(ctx: ClientContext): void {
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
+        'sidebar.settings': { kind: 'single', scope: 'root' },
+        'sidebar.workspaces': { kind: 'single', scope: 'root' },
       },
       inject: () => createUpstreamFace(ctx),
     }, BcShellFrame)
@@ -139,4 +181,16 @@ export function apply(ctx: ClientContext): void {
       presenter.dispose()
     }
   }, 'bc-web-ui: theme presenter')
+
+  // The bc 规则与记忆 section rides the official settings shell's section
+  // slot (declared by ui-settings-general's SettingsRoot, the same extension
+  // point Models / Plugins use); `slots.inject` waits for that declaration.
+  const t = ctx.locale.bind(BC_NS)
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'rules-memory',
+    order: 30,
+    label: () => t('settings.rulesMemoryNav'),
+    locale: BC_NS,
+  }, RulesMemorySection))
 }

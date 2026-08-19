@@ -13,6 +13,17 @@
 - id: ui-layout
   disabled: true
 
+# 1b) Also disable the official sidebar shell: bc-web-ui renders its own
+#     sidebar, so the official SidebarRoot is unused. It also declared the
+#     sidebar.settings / sidebar.workspaces / sidebar.footer.action seats; the
+#     official settings shell (ui-settings-general SettingsRoot) occupies
+#     sidebar.settings via slots.inject, so bc-web-ui re-declares exactly that
+#     seat and renders it from its own footer (P1-3). sidebar.workspaces /
+#     sidebar.footer.action stay undeclared — their inject registrants simply
+#     stay dormant.
+- id: ui-sidebar
+  disabled: true
+
 # 2) Append our plugin rows. Entry-list position carries no semantics —
 #    activation order is owned by cordis fiber inject waiting.
 #    bc-web-ui: client layout plugin. The host Loader imports its Node half,

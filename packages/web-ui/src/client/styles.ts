@@ -66,8 +66,11 @@ const SHELL_CSS = `
 }
 /* Dark table (frontend-user .dark overrides). Primary tiers interpolate the
    branding dark variants; the scrollbar values are DERIVED (dark-background
-   visibility adaptation, style-owned — see the module doc). */
-.bc-web-ui-frame[data-bc-theme='dark'] {
+   visibility adaptation, style-owned — see the module doc). The override is
+   keyed off the OFFICIAL data-ds-dark-theme body attribute (the single theme
+   source of truth, applied by BcThemePresenter on theme/change), so the
+   official Appearance row drives the bc token table too. */
+body[data-ds-dark-theme] .bc-web-ui-frame {
   --bc-color-primary: ${BRANDING.theme.primaryDark};
   --bc-color-primary-hover: ${BRANDING.theme.primaryDarkHover};
   --bc-color-primary-active: ${BRANDING.theme.primaryDarkActive};
@@ -124,7 +127,9 @@ const SHELL_CSS = `
 }
 
 /* Brand header — 56px, frontend-user geometry; mark paints the branding
-   primary (P2-f), name is the branding-sourced product name. */
+   primary (P2-f) and carries the product-name initial (derived from the same
+   branding single source — no literal in code), name is the branding-sourced
+   product name. */
 .bc-web-ui-sidebar-header {
   display: flex;
   height: 56px;
@@ -135,11 +140,19 @@ const SHELL_CSS = `
   padding: 12px 10px 12px 12px;
 }
 .bc-web-ui-brand-mark {
+  display: flex;
   width: 28px;
   height: 28px;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
   border-radius: 8px;
   background: var(--bc-color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #ffffff;
+  user-select: none;
 }
 .bc-web-ui-brand-name {
   overflow: hidden;
@@ -643,10 +656,11 @@ const SHELL_CSS = `
 
 /* ===== Nav pages (P2-e: skills/cron/settings skeletons) =====
    The shared page scaffold (PageScaffold.tsx): frontend-user page geometry —
-   header (title 24px/32px semibold + subtitle 13px/20px secondary, 40px side
-   padding), tab bar (TabButton spec: 40px cells, 13px/18px semibold, 24px
-   gaps, active = 2px primary bottom border riding the bar hairline), and a
-   scrollable body column. */
+   header (title 24px/32px semibold + subtitle 13px/20px secondary, 44px top
+   / 12px bottom / 40px side padding; a row so the header actions keep a
+   stable right-edge slot across tab switches), tab bar (TabButton spec: 40px
+   cells, 13px/18px semibold, 24px gaps, active = 2px primary bottom border
+   riding the bar hairline), and a scrollable body column. */
 .bc-web-ui-page {
   min-width: 0;
   min-height: 0;
@@ -658,10 +672,25 @@ const SHELL_CSS = `
 .bc-web-ui-page-header {
   display: flex;
   flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+  padding: 44px 40px 12px;
+}
+.bc-web-ui-page-header-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 4px;
-  box-sizing: border-box;
-  padding: 40px 40px 20px;
+}
+.bc-web-ui-page-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
 }
 .bc-web-ui-page-title {
   margin: 0;
@@ -765,10 +794,16 @@ const SHELL_CSS = `
   margin: 0;
   font-size: 13px;
   line-height: 20px;
-  color: var(--bc-text-muted);
+  /* secondary (not muted): the hint is the empty state's only explanatory
+     line — muted reads ~3.4:1 on white, below AA for 13px body copy. */
+  color: var(--bc-text-secondary);
 }
 
-/* Skills page rows (installed tab: one row per catalog entry). */
+/* Skills page rows (installed tab: one row per catalog entry). The row carries
+   the frontend-user card posture: a leading initial icon (primary-tinted
+   box), hover fill feedback, and a 2-line clamped description (the demo's
+   cardDesc spec — raw SKILL.md newlines collapse, long entries stop stretching
+   the list). */
 .bc-web-ui-page-list {
   display: flex;
   max-width: 720px;
@@ -777,13 +812,44 @@ const SHELL_CSS = `
 }
 .bc-web-ui-skill-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   box-sizing: border-box;
   padding: 12px 16px;
   border: 1px solid var(--bc-border);
   border-radius: 12px;
   background: var(--bc-bg-card);
+  transition: background-color 0.15s;
+}
+.bc-web-ui-skill-row:hover { background: var(--bc-fill-hover); }
+.bc-web-ui-skill-row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+.bc-web-ui-skill-icon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bc-color-primary) 8%, transparent);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--bc-color-primary);
+  user-select: none;
+}
+.bc-web-ui-skill-row-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
 }
 .bc-web-ui-skill-row-head {
   display: flex;
@@ -811,58 +877,14 @@ const SHELL_CSS = `
   user-select: none;
 }
 .bc-web-ui-skill-desc {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   font-size: 12px;
   line-height: 18px;
   color: var(--bc-text-secondary);
-}
-
-/* Settings page: the DSH entry card (disabled until the official settings
-   mount point is reachable — see SettingsPage.tsx module doc). */
-.bc-web-ui-settings-dsh {
-  display: flex;
-  max-width: 720px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  box-sizing: border-box;
-  margin-top: 24px;
-  padding: 16px 20px;
-  border: 1px dashed var(--bc-border-strong);
-  border-radius: 12px;
-  background: var(--bc-bg-card);
-}
-.bc-web-ui-settings-dsh-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-}
-.bc-web-ui-settings-dsh-title {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 20px;
-  color: var(--bc-text-primary);
-}
-.bc-web-ui-settings-dsh-hint {
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--bc-text-muted);
-}
-.bc-web-ui-settings-dsh-button {
-  flex-shrink: 0;
-  height: 32px;
-  box-sizing: border-box;
-  border: none;
-  border-radius: 8px;
-  background: var(--bc-fill-hover-strong);
-  padding: 0 16px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 20px;
-  color: var(--bc-text-muted);
-  cursor: default;
 }
 
 /* ===== Center column / details column / overlay layer ===== */
@@ -891,6 +913,558 @@ const SHELL_CSS = `
 }
 .bc-web-ui-sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background-color: var(--bc-scrollbar-thumb-hover);
+}
+
+/* Workspace-browser icons go monochrome: the official ui-workspace rows may
+   carry colored glyphs; the demo's sidebar grammar is strictly neutral
+   (currentColor line icons), so desaturate every svg/img inside the embedded
+   official browser (scoped to its data attribute — the skeleton's own nav
+   icons are currentColor already and stay untouched above this rule). */
+[data-bc-workspace-browser] svg,
+[data-bc-workspace-browser] img { filter: grayscale(1); }
+
+/* ===== Modal (skills upload + cron create, P1-4/P1-5) ===== */
+.bc-web-ui-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bc-web-ui-modal-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.bc-web-ui-modal-panel {
+  position: relative;
+  display: flex;
+  width: 680px;
+  max-width: calc(100vw - 32px);
+  max-height: 90vh;
+  flex-direction: column;
+  border: 1px solid var(--bc-border);
+  border-radius: 16px;
+  background: var(--bc-bg-card);
+  box-shadow: var(--bc-shadow-lg);
+  overflow: hidden;
+}
+.bc-web-ui-modal-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--bc-border);
+}
+.bc-web-ui-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-modal-close {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--bc-text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.bc-web-ui-modal-close:hover { background: var(--bc-fill-hover); }
+/* The body must contribute its CONTENT height to the auto-height panel
+   (flex-basis auto, not 0 — a 0 basis with overflow:auto collapses the body
+   to its padding and buries the form in a 40px scroll slit); min-height: 0
+   still lets the 90vh cap compress it into scrolling. */
+.bc-web-ui-modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px 24px;
+}
+.bc-web-ui-modal-foot {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 16px 24px;
+  border-top: 1px solid var(--bc-border);
+}
+.bc-web-ui-modal-cancel {
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--bc-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.bc-web-ui-modal-cancel:hover { background: var(--bc-fill-hover); }
+.bc-web-ui-modal-primary {
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bc-color-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.bc-web-ui-modal-primary:hover { background: var(--bc-color-primary-hover); }
+.bc-web-ui-modal-primary:disabled {
+  background: var(--bc-fill-hover-strong);
+  color: var(--bc-text-muted);
+  cursor: default;
+}
+
+/* ===== Form fields (modal contents) ===== */
+/* Two-column field row (demo CreateTaskModal posture: name+expression,
+   workspace+model pairs ride one row in the 680px panel). */
+.bc-web-ui-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.bc-web-ui-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* The demo's dashed upload zone: a tall click target that carries the picker
+   affordance (directory choice via the native picker — no fake drop data). */
+.bc-web-ui-upload-drop {
+  display: flex;
+  height: 120px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: 2px dashed var(--bc-border-strong);
+  border-radius: 12px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--bc-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.bc-web-ui-upload-drop:hover {
+  border-color: var(--bc-color-primary);
+  background: color-mix(in srgb, var(--bc-color-primary) 6%, transparent);
+}
+.bc-web-ui-upload-drop:disabled { cursor: default; }
+.bc-web-ui-upload-drop-chosen {
+  border-style: solid;
+  border-color: var(--bc-color-primary);
+}
+.bc-web-ui-upload-drop-path {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-upload-drop-hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--bc-text-muted);
+}
+/* Segmented choice (the demo's pill-button selectors: skill type / scope). */
+.bc-web-ui-seg-group {
+  display: flex;
+  gap: 8px;
+}
+.bc-web-ui-seg {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--bc-text-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+}
+.bc-web-ui-seg:hover { border-color: var(--bc-color-primary); }
+.bc-web-ui-seg-active {
+  border-color: var(--bc-color-primary);
+  background: color-mix(in srgb, var(--bc-color-primary) 10%, transparent);
+  color: var(--bc-color-primary);
+  font-weight: 500;
+}
+.bc-web-ui-form-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--bc-text-secondary);
+  user-select: none;
+}
+/* Field-level hint line (demo's 11px muted notes under selects/inputs). */
+.bc-web-ui-form-hint {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--bc-text-muted);
+  user-select: none;
+}
+.bc-web-ui-form-input,
+.bc-web-ui-form-select {
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 8px;
+  background: var(--bc-bg-main);
+  font: inherit;
+  font-size: 13px;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-form-textarea {
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 8px;
+  background: var(--bc-bg-main);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--bc-text-primary);
+  resize: vertical;
+}
+.bc-web-ui-form-input:focus-visible,
+.bc-web-ui-form-select:focus-visible,
+.bc-web-ui-form-textarea:focus-visible {
+  outline: 2px solid var(--bc-color-primary);
+  outline-offset: 1px;
+}
+.bc-web-ui-form-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--bc-color-error);
+}
+
+/* ===== bc Rules & Memory section (rendered inside the official settings shell) ===== */
+.bc-web-ui-settings-krm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 24px;
+}
+.bc-web-ui-settings-krm-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 16px;
+  border: 1px solid var(--bc-border);
+  border-radius: 12px;
+  background: var(--bc-bg-card);
+}
+.bc-web-ui-settings-krm-icon {
+  display: flex;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bc-color-primary) 8%, transparent);
+  color: var(--bc-color-primary);
+}
+.bc-web-ui-settings-krm-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.bc-web-ui-settings-krm-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-settings-krm-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--bc-text-secondary);
+}
+
+/* ===== Page CTA + cron rows (P1-4/P1-5) ===== */
+/* CTA geometry = the demo's header buttons (h-32, r8, 14px icon, 6px gap). */
+.bc-web-ui-page-cta {
+  display: inline-flex;
+  align-self: flex-start;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--bc-color-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.bc-web-ui-page-cta:hover { background: var(--bc-color-primary-hover); }
+.bc-web-ui-cron-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border: 1px solid var(--bc-border);
+  border-radius: 12px;
+  background: var(--bc-bg-card);
+}
+.bc-web-ui-cron-row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.bc-web-ui-cron-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bc-web-ui-cron-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-cron-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--bc-text-secondary);
+}
+.bc-web-ui-cron-schedule {
+  font-weight: 500;
+  color: var(--bc-text-secondary);
+}
+.bc-web-ui-cron-desc {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--bc-text-tertiary);
+}
+
+/* ===== Toggle switch (task enable/disable, demo TaskRow posture) ===== */
+.bc-web-ui-toggle {
+  display: flex;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--bc-border-strong);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.bc-web-ui-toggle-on { background: var(--bc-color-primary); }
+.bc-web-ui-toggle:disabled { cursor: default; opacity: 0.5; }
+.bc-web-ui-toggle-knob {
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+}
+.bc-web-ui-toggle-on .bc-web-ui-toggle-knob { transform: translateX(20px); }
+
+/* ===== Row action buttons (cron tasks + installed skills) ===== */
+.bc-web-ui-row-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+.bc-web-ui-row-action {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--bc-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.bc-web-ui-row-action:hover { background: var(--bc-fill-hover-strong); color: var(--bc-text-primary); }
+.bc-web-ui-row-action:disabled { opacity: 0.4; cursor: default; }
+.bc-web-ui-row-action-danger { color: var(--bc-color-error); }
+.bc-web-ui-row-action-danger:hover { background: color-mix(in srgb, var(--bc-color-error) 8%, transparent); color: var(--bc-color-error); }
+
+/* ===== Page toolbar (installed-skills search + project filter) ===== */
+.bc-web-ui-page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.bc-web-ui-search {
+  display: flex;
+  height: 28px;
+  width: 200px;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 6px;
+  background: var(--bc-bg-card);
+}
+.bc-web-ui-search:focus-within { border-color: var(--bc-color-primary); }
+.bc-web-ui-search-input {
+  min-width: 0;
+  flex: 1 1 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--bc-text-primary);
+  outline: none;
+}
+.bc-web-ui-search-input::placeholder { color: var(--bc-text-muted); }
+.bc-web-ui-search-clear {
+  display: flex;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--bc-text-muted);
+  cursor: pointer;
+}
+.bc-web-ui-search-clear:hover { color: var(--bc-text-primary); }
+.bc-web-ui-filter-select {
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 6px;
+  background: var(--bc-bg-card);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--bc-text-secondary);
+}
+.bc-web-ui-filter-select:focus-visible { outline: 2px solid var(--bc-color-primary); outline-offset: 1px; }
+
+/* ===== Skill row meta (scope + owning-project marker) ===== */
+.bc-web-ui-skill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.bc-web-ui-skill-project {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--bc-text-tertiary);
+}
+
+/* ===== Confirm modal (delete task / uninstall skill) ===== */
+.bc-web-ui-confirm-panel { width: 360px; }
+.bc-web-ui-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 24px;
+  text-align: center;
+}
+.bc-web-ui-confirm-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-confirm-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--bc-text-secondary);
+}
+.bc-web-ui-confirm-danger { background: var(--bc-color-error); }
+.bc-web-ui-confirm-danger:hover { background: color-mix(in srgb, var(--bc-color-error) 85%, #000000); }
+
+/* ===== Transient action notice (run / toggle / delete feedback) ===== */
+.bc-web-ui-notice {
+  margin: 0 0 12px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--bc-border);
+  border-radius: 8px;
+  background: var(--bc-fill-hover-strong);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--bc-text-primary);
 }
 `
 

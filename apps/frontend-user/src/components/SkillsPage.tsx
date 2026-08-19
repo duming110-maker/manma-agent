@@ -589,19 +589,19 @@ const SkillsPage: React.FC<SkillsPageProps> = ({ onUseSkill }) => {
     >
       {/* ===== 页面标题区 ===== */}
       <div
-        className="flex shrink-0 items-center justify-between px-[40px] pt-[44px] pb-[20px]"
+        className="flex shrink-0 items-center justify-between px-[40px] pt-[44px] pb-[12px]"
       >
         <div className="flex flex-col gap-[4px]">
           <h1 className="m-0 text-[24px] leading-[32px] font-semibold text-[var(--text-primary)] tracking-[0.1px]">
             技能
           </h1>
           <p className="m-0 text-[13px] leading-[20px] text-[var(--text-secondary)]">
-            安装和管理技能，为 BC Agent 解锁业务能力
+            安装和管理技能，为智能体解锁业务能力
           </p>
         </div>
         <button
           onClick={() => setUploadModalOpen(true)}
-          className="btn-primary flex h-[34px] cursor-pointer items-center gap-[6px] rounded-[8px] border-none px-[16px] text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+          className="btn-primary flex h-[32px] cursor-pointer items-center gap-[6px] rounded-[8px] border-none px-[16px] text-[13px] font-medium text-white transition-opacity hover:opacity-90"
           style={{ backgroundColor: "var(--color-primary)" }}
         >
           <UploadIcon size={14} />

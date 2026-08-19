@@ -1,42 +1,455 @@
 /**
- * The cron page (P2-e): the frontend-user page skeleton with the three docs/
- * 03 §5 tabs (模板/任务/执行记录), all empty states — the cron business
- * domain has no plugin yet (capability-cron is P4; the /ext channel today
- * carries only ext.probe), so this card deliberately renders NO data and
- * invents NO RPC: every tab says it is waiting for the cron plugin.
- * Templates, task rows, execution records, and the create flow land with
- * P4's capability-cron.
+ * The cron page (P2-e + P1-5): three tabs — 模板 / 任务 / 执行记录. The task
+ * tab manages the JSON-backed task store (host `cron.tasks.*` through `/ext`):
+ * create/edit a task from a frequency picker (never a raw cron input), a
+ * model dropdown fed by the host `llm.models` catalog, an enable/disable
+ * switch, and per-row run / edit / delete actions. The history tab reads the
+ * run-history store (`cron.runs.*`). Actual scheduling (cron-parser +
+ * execution) lands in P4; the wire derives a five-field cron expression at
+ * submit, and the list renders a human-readable schedule — raw cron is never
+ * shown to the user.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import { BcPageEmpty, BcPageScaffold, type BcPageTab } from './PageScaffold.tsx'
+import type {
+  UpstreamCronRun, UpstreamCronTask, UpstreamFace, UpstreamModelOption, UpstreamWorkspaceOptions,
+} from '../adapters/upstream.ts'
+import { BcConfirmModal, BcPageEmpty, BcPageScaffold, type BcPageTab } from './PageScaffold.tsx'
 import { CronIcon } from './icons.tsx'
 
-/** Props: the `t` seat (bc namespace; copy lives in ./locale.ts). */
 export interface BcCronPageProps {
+  upstream: UpstreamFace
+  workspaceOptions: UpstreamWorkspaceOptions
   t: TranslateNS<'bc'>
 }
 
+/** The schedule picker's frequency union (demo CreateTaskModal posture). */
+type CronFrequency = 'daily' | 'weekly' | 'monthly' | 'interval'
+
+/** The weekday pill keys in display order (Mon..Sun; mapped to cron numbers at build). */
+const WEEKDAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+type WeekdayKey = (typeof WEEKDAY_KEYS)[number]
+
+/** Half-hour time options 00:00..23:30 (demo's execution-time select). */
+const TIME_OPTIONS: readonly string[] = Array.from({ length: 48 }, (_, i) => {
+  const h = String(Math.floor(i / 2)).padStart(2, '0')
+  return i % 2 === 0 ? `${h}:00` : `${h}:30`
+})
+
+/** Two-digit pad (cron minute/hour fields lose leading zeros). */
+function pad2(value: string | number): string {
+  return String(value).padStart(2, '0')
+}
+
 /**
- * The cron page (see module doc): scaffold + the waiting-for-plugin empty
- * state of the active tab. Tab state is local; nothing else exists yet.
- * @param props - the `t` seat.
- * @returns the page element tree.
+ * Compose the cron expression from the picker state (the demo form never
+ * shows a raw expression; this is the single derivation the wire consumes).
+ * - daily HH:MM     → "M H * * *"
+ * - weekly HH:MM    → "M H * * D1,D2" (cron day-of-week: 0=Sun, 1=Mon, …)
+ * - monthly D HH:MM → "M H D * *"
+ * - interval N h    → "0 every-N-hours field" (hour = slash N)
+ * @returns the five-field cron expression, or undefined when the current
+ * frequency's required fields are still unset.
  */
-export function BcCronPage({ t }: BcCronPageProps) {
-  const [activeTab, setActiveTab] = useState('templates')
-  // The three tabs (docs/03 §5); labels resolve per render so a locale switch
-  // re-labels live.
+function buildCronExpression(
+  frequency: CronFrequency, time: string, weekdays: readonly WeekdayKey[], monthDay: number, intervalHours: number,
+): string | undefined {
+  const [hh, mm] = time.split(':')
+  const hour = Number(hh)
+  const minute = Number(mm)
+  if (frequency === 'daily') return `${minute} ${hour} * * *`
+  if (frequency === 'monthly') return `${minute} ${hour} ${monthDay} * *`
+  if (frequency === 'interval') {
+    if (!Number.isInteger(intervalHours) || intervalHours < 1 || intervalHours > 23) return undefined
+    return `0 */${intervalHours} * * *`
+  }
+  if (weekdays.length === 0) return undefined
+  // WEEKDAY_KEYS is Mon..Sun; cron's day-of-week is 0=Sun..6=Sat.
+  const cronDays = weekdays
+    .map(key => WEEKDAY_KEYS.indexOf(key))
+    .map(index => (index + 1) % 7)
+    .sort((a, b) => a - b)
+    .join(',')
+  return `${minute} ${hour} * * ${cronDays}`
+}
+
+/** The reverse of `buildCronExpression`, for pre-filling the edit form. */
+function parseCronExpression(expr: string):
+  | { frequency: CronFrequency; time: string; weekdays: WeekdayKey[]; monthDay: number; intervalHours: number }
+  | undefined {
+  const parts = expr.trim().split(/\s+/)
+  if (parts.length !== 5) return undefined
+  const minute = parts[0]!
+  const hour = parts[1]!
+  const dom = parts[2]!
+  const month = parts[3]!
+  const dow = parts[4]!
+  if (month !== '*') return undefined
+  if (dom === '*' && dow === '*') {
+    if (hour === '*' || minute === '*') return undefined
+    return { frequency: 'daily', time: `${pad2(hour)}:${pad2(minute)}`, weekdays: [], monthDay: 1, intervalHours: 6 }
+  }
+  if (dow === '*' && /^\d+$/.test(dom)) {
+    return { frequency: 'monthly', time: `${pad2(hour)}:${pad2(minute)}`, weekdays: [], monthDay: Number(dom), intervalHours: 6 }
+  }
+  if (minute === '0' && /^\*\/(\d+)$/.test(hour)) {
+    return { frequency: 'interval', time: '09:00', weekdays: [], monthDay: 1, intervalHours: Number(hour.slice(2)) }
+  }
+  if (dom === '*' && dow !== '*') {
+    const weekdays: WeekdayKey[] = []
+    for (const raw of dow.split(',')) {
+      const n = Number(raw)
+      if (Number.isNaN(n)) continue
+      const key = WEEKDAY_KEYS[((n % 7) + 7) % 7]
+      if (key !== undefined) weekdays.push(key)
+    }
+    return { frequency: 'weekly', time: `${pad2(hour)}:${pad2(minute)}`, weekdays, monthDay: 1, intervalHours: 6 }
+  }
+  return undefined
+}
+
+/** Human-readable schedule for the task list (raw cron is never shown). */
+function describeCron(expr: string, t: TranslateNS<'bc'>): string {
+  const parsed = parseCronExpression(expr)
+  if (parsed === undefined) return t('cron.descCustom')
+  switch (parsed.frequency) {
+    case 'daily': return t('cron.descDaily', { time: parsed.time })
+    case 'monthly': return t('cron.descMonthly', { day: String(parsed.monthDay), time: parsed.time })
+    case 'interval': return t('cron.descInterval', { hours: String(parsed.intervalHours) })
+    case 'weekly': {
+      const days = parsed.weekdays.map(key => t(`cron.weekday.${key}`)).join('、')
+      return t('cron.descWeekly', { days, time: parsed.time })
+    }
+  }
+}
+
+/** Local `YYYY-MM-DD HH:mm` for a run timestamp. */
+function formatTriggerTime(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** Initial form state derived from the edited task (or blank for create). */
+function initialTaskForm(task: UpstreamCronTask | undefined): {
+  name: string
+  description: string
+  frequency: CronFrequency
+  time: string
+  weekdays: WeekdayKey[]
+  monthDay: number
+  intervalHours: number
+  workspaceId: string
+  modelName: string
+} {
+  const parsed = task !== undefined ? parseCronExpression(task.cronExpression) : undefined
+  return {
+    name: task?.name ?? '',
+    description: task?.description ?? '',
+    frequency: parsed?.frequency ?? 'daily',
+    time: parsed?.time ?? '09:00',
+    weekdays: parsed?.weekdays ?? [],
+    monthDay: parsed?.monthDay ?? 1,
+    intervalHours: parsed?.intervalHours ?? 6,
+    workspaceId: task?.workspaceId ?? '',
+    modelName: task?.modelName ?? '',
+  }
+}
+
+/** The create/edit task modal (P1-5): frequency picker + model dropdown, never a raw cron input. */
+function TaskModal({ workspaceOptions, upstream, t, editing, onClose, onSaved }: {
+  workspaceOptions: UpstreamWorkspaceOptions
+  upstream: UpstreamFace
+  t: TranslateNS<'bc'>
+  editing: UpstreamCronTask | undefined
+  onClose(): void
+  onSaved(task: UpstreamCronTask): void
+}) {
+  const initial = initialTaskForm(editing)
+  const [name, setName] = useState(initial.name)
+  const [description, setDescription] = useState(initial.description)
+  const [frequency, setFrequency] = useState<CronFrequency>(initial.frequency)
+  const [time, setTime] = useState(initial.time)
+  const [weekdays, setWeekdays] = useState<WeekdayKey[]>(initial.weekdays)
+  const [monthDay, setMonthDay] = useState(initial.monthDay)
+  const [intervalHours, setIntervalHours] = useState(initial.intervalHours)
+  const [workspaceId, setWorkspaceId] = useState(initial.workspaceId)
+  const [modelName, setModelName] = useState(initial.modelName)
+  const [models, setModels] = useState<readonly UpstreamModelOption[]>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    let current = true
+    upstream.listModels().then(
+      (options) => { if (current) setModels(options) },
+      () => {},
+    )
+    return () => { current = false }
+  }, [upstream])
+
+  const toggleWeekday = (key: WeekdayKey): void => {
+    setWeekdays(prev => prev.includes(key) ? prev.filter(d => d !== key) : [...prev, key])
+  }
+
+  const cronExpression = buildCronExpression(frequency, time, weekdays, monthDay, intervalHours)
+  const canSubmit = name.trim() !== '' && cronExpression !== undefined && workspaceId !== '' && !submitting
+
+  const submit = (): void => {
+    if (cronExpression === undefined || !canSubmit) return
+    setSubmitting(true)
+    setError(undefined)
+    const payload = {
+      name: name.trim(),
+      description: description.trim(),
+      cronExpression,
+      workspaceId,
+      ...(modelName.trim() !== '' ? { modelName: modelName.trim() } : {}),
+    }
+    const action = editing !== undefined
+      ? upstream.updateCronTask({ id: editing.id, ...payload })
+      : upstream.createCronTask(payload)
+    void action
+      .then((task) => { onSaved(task); onClose() })
+      .catch(() => { setError(t(editing !== undefined ? 'cron.toggleFailed' : 'cron.createFailed')) })
+      .finally(() => { setSubmitting(false) })
+  }
+
+  return (
+    <div className="bc-web-ui-modal" role="dialog" aria-modal="true" data-bc-cron-modal>
+      {/* Mask click does NOT close (demo posture: form content must not be lost). */}
+      <div className="bc-web-ui-modal-mask" aria-hidden="true" />
+      <div className="bc-web-ui-modal-panel">
+        <header className="bc-web-ui-modal-head">
+          <span className="bc-web-ui-modal-title">{editing !== undefined ? t('cron.editTitle') : t('cron.newTask')}</span>
+          <button type="button" className="bc-web-ui-modal-close" onClick={onClose} aria-label={t('settings.close')}>✕</button>
+        </header>
+        <div className="bc-web-ui-modal-body">
+          <div className="bc-web-ui-form-field">
+            <label className="bc-web-ui-form-label">{t('cron.taskName')}</label>
+            <input type="text" className="bc-web-ui-form-input" value={name} onChange={(e) => { setName(e.target.value) }} disabled={submitting} />
+          </div>
+          <div className="bc-web-ui-form-grid">
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.frequency')}</label>
+              <select
+                className="bc-web-ui-form-select"
+                value={frequency}
+                onChange={(e) => { setFrequency(e.target.value as CronFrequency) }}
+                disabled={submitting}
+              >
+                <option value="daily">{t('cron.freqDaily')}</option>
+                <option value="weekly">{t('cron.freqWeekly')}</option>
+                <option value="monthly">{t('cron.freqMonthly')}</option>
+                <option value="interval">{t('cron.freqInterval')}</option>
+              </select>
+            </div>
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.time')}</label>
+              <select className="bc-web-ui-form-select" value={time} onChange={(e) => { setTime(e.target.value) }} disabled={submitting}>
+                {TIME_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </div>
+          </div>
+          {frequency === 'weekly' && (
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.weekDays')}</label>
+              <div className="bc-web-ui-seg-group">
+                {WEEKDAY_KEYS.map(key => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={weekdays.includes(key) ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
+                    onClick={() => { toggleWeekday(key) }}
+                    disabled={submitting}
+                    data-bc-cron-weekday={key}
+                  >
+                    {t(`cron.weekday.${key}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {frequency === 'monthly' && (
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.monthDay')}</label>
+              <select
+                className="bc-web-ui-form-select"
+                value={monthDay}
+                onChange={(e) => { setMonthDay(Number(e.target.value)) }}
+                disabled={submitting}
+              >
+                {Array.from({ length: 28 }, (_, i) => i + 1).map(day => <option key={day} value={day}>{day}</option>)}
+              </select>
+              <span className="bc-web-ui-form-hint">{t('cron.monthDayHint')}</span>
+            </div>
+          )}
+          {frequency === 'interval' && (
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.intervalHours')}</label>
+              <input
+                type="number"
+                min={1}
+                max={23}
+                className="bc-web-ui-form-input"
+                value={intervalHours}
+                onChange={(e) => { setIntervalHours(Number(e.target.value)) }}
+                disabled={submitting}
+              />
+              <span className="bc-web-ui-form-hint">{t('cron.intervalHoursHint')}</span>
+            </div>
+          )}
+          <div className="bc-web-ui-form-field">
+            <label className="bc-web-ui-form-label">{t('cron.taskDescription')}</label>
+            <textarea className="bc-web-ui-form-textarea" rows={3} value={description} onChange={(e) => { setDescription(e.target.value) }} disabled={submitting} />
+          </div>
+          <div className="bc-web-ui-form-grid">
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.workspace')}</label>
+              <select className="bc-web-ui-form-select" value={workspaceId} onChange={(e) => { setWorkspaceId(e.target.value) }} disabled={submitting}>
+                <option value="">{t('cron.noWorkspace')}</option>
+                {workspaceOptions.items.map(item => <option key={String(item.id)} value={String(item.id)}>{item.title}</option>)}
+              </select>
+            </div>
+            <div className="bc-web-ui-form-field">
+              <label className="bc-web-ui-form-label">{t('cron.model')}</label>
+              <select className="bc-web-ui-form-select" value={modelName} onChange={(e) => { setModelName(e.target.value) }} disabled={submitting}>
+                <option value="">{t('cron.modelDefault')}</option>
+                {models.map(model => <option key={`${model.provider}/${model.model}`} value={model.name}>{model.name}</option>)}
+              </select>
+            </div>
+          </div>
+          {error !== undefined && <p className="bc-web-ui-form-error" role="alert">{error}</p>}
+        </div>
+        <footer className="bc-web-ui-modal-foot">
+          <button type="button" className="bc-web-ui-modal-cancel" onClick={onClose}>{t('skills.uploadCancel')}</button>
+          <button type="button" className="bc-web-ui-modal-primary" onClick={submit} disabled={!canSubmit}>
+            {submitting
+              ? (editing !== undefined ? t('cron.saving') : t('cron.creating'))
+              : (editing !== undefined ? t('cron.save') : t('cron.create'))}
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+/** One stored task row (enable switch + schedule summary + run/edit/delete). */
+function TaskRow({ task, workspaceTitle, t, busy, onToggle, onRun, onEdit, onDelete }: {
+  task: UpstreamCronTask
+  workspaceTitle: string | undefined
+  t: TranslateNS<'bc'>
+  busy: boolean
+  onToggle(): void
+  onRun(): void
+  onEdit(): void
+  onDelete(): void
+}) {
+  const metaParts = [describeCron(task.cronExpression, t)]
+  if (task.modelName !== '') metaParts.push(task.modelName)
+  if (workspaceTitle !== undefined) metaParts.push(workspaceTitle)
+  return (
+    <div className="bc-web-ui-cron-row" data-bc-cron-row={task.id}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={task.enabled}
+        aria-label={task.enabled ? t('cron.disable') : t('cron.enable')}
+        className={task.enabled ? 'bc-web-ui-toggle bc-web-ui-toggle-on' : 'bc-web-ui-toggle'}
+        onClick={onToggle}
+        disabled={busy}
+        data-bc-cron-toggle={task.id}
+      >
+        <span className="bc-web-ui-toggle-knob" />
+      </button>
+      <div className="bc-web-ui-cron-row-main">
+        <div className="bc-web-ui-cron-row-head">
+          <span className="bc-web-ui-cron-name">{task.name}</span>
+          {!task.enabled && <span className="bc-web-ui-skill-badge">{t('cron.disabled')}</span>}
+        </div>
+        <div className="bc-web-ui-cron-meta">
+          <span className="bc-web-ui-cron-schedule">{metaParts.join(' · ')}</span>
+        </div>
+        {task.description !== '' && <p className="bc-web-ui-cron-desc">{task.description}</p>}
+      </div>
+      <div className="bc-web-ui-row-actions">
+        <button type="button" className="bc-web-ui-row-action" onClick={onRun} disabled={busy || !task.enabled}>{t('cron.run')}</button>
+        <button type="button" className="bc-web-ui-row-action" onClick={onEdit} disabled={busy}>{t('cron.edit')}</button>
+        <button type="button" className="bc-web-ui-row-action bc-web-ui-row-action-danger" onClick={onDelete} disabled={busy}>{t('cron.delete')}</button>
+      </div>
+    </div>
+  )
+}
+
+export function BcCronPage({ upstream, workspaceOptions, t }: BcCronPageProps) {
+  const [activeTab, setActiveTab] = useState('tasks')
+  const [tasks, setTasks] = useState<UpstreamCronTask[]>([])
+  const [runs, setRuns] = useState<UpstreamCronRun[]>([])
+  const [loading, setLoading] = useState(false)
+  const [runsLoading, setRunsLoading] = useState(false)
+  const [modal, setModal] = useState<{ editing: UpstreamCronTask | undefined } | undefined>(undefined)
+  const [deleteTarget, setDeleteTarget] = useState<UpstreamCronTask | undefined>(undefined)
+  const [busyId, setBusyId] = useState<string | undefined>(undefined)
+  const [notice, setNotice] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    let current = true
+    setLoading(true)
+    upstream.listCronTasks().then(
+      (rows) => { if (current) setTasks(rows) },
+      () => {},
+    ).finally(() => { if (current) setLoading(false) })
+    return () => { current = false }
+  }, [upstream])
+
+  useEffect(() => {
+    let current = true
+    setRunsLoading(true)
+    upstream.listCronRuns().then(
+      (rows) => { if (current) setRuns(rows) },
+      () => {},
+    ).finally(() => { if (current) setRunsLoading(false) })
+    return () => { current = false }
+  }, [upstream])
+
+  const workspaceTitle = (task: UpstreamCronTask): string | undefined =>
+    workspaceOptions.items.find(item => String(item.id) === task.workspaceId)?.title
+
+  const flash = (message: string): void => {
+    setNotice(message)
+    window.setTimeout(() => { setNotice(undefined) }, 3000)
+  }
+
+  const toggleTask = (task: UpstreamCronTask): void => {
+    setBusyId(task.id)
+    void upstream.updateCronTask({ id: task.id, enabled: !task.enabled })
+      .then((updated) => { setTasks(prev => prev.map(row => row.id === updated.id ? updated : row)) })
+      .catch(() => { flash(t('cron.toggleFailed')) })
+      .finally(() => { setBusyId(undefined) })
+  }
+
+  const runTask = (task: UpstreamCronTask): void => {
+    setBusyId(task.id)
+    void upstream.runCronTask(task.id)
+      .then((run) => { setRuns(prev => [run, ...prev]); flash(t('cron.runTriggered')) })
+      .catch(() => { flash(t('cron.runFailed')) })
+      .finally(() => { setBusyId(undefined) })
+  }
+
+  const confirmDelete = (): void => {
+    if (deleteTarget === undefined) return
+    setBusyId(deleteTarget.id)
+    void upstream.deleteCronTask(deleteTarget.id)
+      .then(() => { setTasks(prev => prev.filter(row => row.id !== deleteTarget.id)) })
+      .catch(() => { flash(t('cron.deleteFailed')) })
+      .finally(() => { setBusyId(undefined); setDeleteTarget(undefined) })
+  }
+
   const tabs: readonly BcPageTab[] = [
     { key: 'templates', label: t('cron.tabTemplates') },
     { key: 'tasks', label: t('cron.tabTasks') },
     { key: 'history', label: t('cron.tabHistory') },
   ]
-  const empty = activeTab === 'templates'
-    ? { title: t('cron.templatesEmptyTitle'), hint: t('cron.templatesEmptyHint') }
-    : activeTab === 'tasks'
-      ? { title: t('cron.tasksEmptyTitle'), hint: t('cron.tasksEmptyHint') }
-      : { title: t('cron.historyEmptyTitle'), hint: t('cron.historyEmptyHint') }
+
   return (
     <BcPageScaffold
       pageKey="cron"
@@ -45,8 +458,82 @@ export function BcCronPage({ t }: BcCronPageProps) {
       tabs={tabs}
       activeTab={activeTab}
       onTabSelect={setActiveTab}
+      actions={(
+        <button type="button" className="bc-web-ui-page-cta" data-bc-new-cron-task onClick={() => { setModal({ editing: undefined }) }}>
+          <CronIcon size={14} />
+          {t('cron.newTask')}
+        </button>
+      )}
     >
-      <BcPageEmpty icon={<CronIcon size={24} />} title={empty.title} hint={empty.hint} />
+      {activeTab === 'templates'
+        ? <BcPageEmpty icon={<CronIcon size={24} />} title={t('cron.templatesEmptyTitle')} hint={t('cron.templatesEmptyHint')} />
+        : activeTab === 'history'
+          ? (runsLoading
+              ? <p className="bc-web-ui-page-loading">{t('skills.installedLoading')}</p>
+              : runs.length === 0
+                ? <BcPageEmpty icon={<CronIcon size={24} />} title={t('cron.historyEmptyTitle')} hint={t('cron.historyEmptyHint')} />
+                : <div className="bc-web-ui-page-list">
+                    {runs.map(run => (
+                      <div className="bc-web-ui-cron-row" key={run.id} data-bc-cron-run={run.id}>
+                        <div className="bc-web-ui-cron-row-main">
+                          <span className="bc-web-ui-cron-name">{run.taskName}</span>
+                          <div className="bc-web-ui-cron-meta">
+                            <span className="bc-web-ui-cron-schedule">{t('cron.historyManual')} · {formatTriggerTime(run.triggeredAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>)
+          : (loading
+              ? <p className="bc-web-ui-page-loading">{t('skills.installedLoading')}</p>
+              : tasks.length === 0
+                ? <BcPageEmpty icon={<CronIcon size={24} />} title={t('cron.tasksEmptyTitle')} hint={t('cron.tasksEmptyHint')} />
+                : (
+                  <>
+                    {notice !== undefined && <p className="bc-web-ui-notice" role="status">{notice}</p>}
+                    <div className="bc-web-ui-page-list">
+                      {tasks.map(task => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          workspaceTitle={workspaceTitle(task)}
+                          t={t}
+                          busy={busyId === task.id}
+                          onToggle={() => { toggleTask(task) }}
+                          onRun={() => { runTask(task) }}
+                          onEdit={() => { setModal({ editing: task }) }}
+                          onDelete={() => { setDeleteTarget(task) }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ))}
+      {modal !== undefined && (
+        <TaskModal
+          key={modal.editing?.id ?? 'new'}
+          workspaceOptions={workspaceOptions}
+          upstream={upstream}
+          t={t}
+          editing={modal.editing}
+          onClose={() => { setModal(undefined) }}
+          onSaved={(task) => {
+            setTasks(prev => prev.some(row => row.id === task.id)
+              ? prev.map(row => row.id === task.id ? task : row)
+              : [...prev, task])
+          }}
+        />
+      )}
+      {deleteTarget !== undefined && (
+        <BcConfirmModal
+          title={t('cron.deleteTitle')}
+          message={t('cron.deleteConfirm', { name: deleteTarget.name })}
+          confirmLabel={t('cron.delete')}
+          cancelLabel={t('skills.uploadCancel')}
+          danger
+          onConfirm={confirmDelete}
+          onCancel={() => { setDeleteTarget(undefined) }}
+        />
+      )}
     </BcPageScaffold>
   )
 }
