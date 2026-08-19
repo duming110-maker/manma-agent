@@ -1,0 +1,32 @@
+# ---- dependencies / build output ----
+node_modules/
+dist/
+lib/
+.next/
+*.tsbuildinfo
+.pnpm-store/
+
+# ---- reference mirror (pulled by scripts/sync-reference.mjs, NEVER committed) ----
+# Open-source releases must not expose the upstream source or demo assets.
+reference/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- Electron build artifacts ----
+apps/desktop/release/
+apps/desktop/out/
+
+# ---- desktop spike data (dsh DSH_HOME: profiles, storages, session logs) ----
+apps/desktop/.data/
+
+# ---- local env / secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- logs ----
+*.log

@@ -1,0 +1,32 @@
+# BC Agent Desktop assembly overlay (P0-2). Applied by apps/desktop as
+#   dsh web --patch <this file>
+# Layer order: dsh-base → dsh-web-app (its insert list ends with the browser
+# roster) → profile user layer → $DSH_HOME home layer → THIS overlay, so the
+# id-targeted disable below overrides the roster row and the insert appends.
+
+# 1) Replace the official layout frame: disable the ui-layout row so the
+#    runtime's built-in 'root' slot (and the four child seats it declared:
+#    sidebar / conversation / details / shell.overlay) is owned by
+#    @bc-agent/web-ui's own registration instead. Disabling (not deleting) is
+#    the official overlay idiom; every other roster row stays enabled and its
+#    components land in the seats bc-web-ui re-declares.
+- id: ui-layout
+  disabled: true
+
+# 2) Append our plugin rows. Entry-list position carries no semantics —
+#    activation order is owned by cordis fiber inject waiting.
+#    bc-web-ui: client layout plugin. The host Loader imports its Node half,
+#    and the client-modules scanner adds its declared dsh.client browser
+#    bundle to window.__DSH_BOOT__ (served under
+#    /plugins/@bc-agent/web-ui/client.js).
+- insert:
+    - id: bc-web-ui
+      name: '@bc-agent/web-ui'
+
+    # bc-capability-core: host-only capability base. No dsh.client manifest,
+    # so the client-modules scanner records a "not a client package" verdict
+    # and adds no browser entry; the row reaches only the host Loader, whose
+    # imported object plugin waits on the connection service before it
+    # registers the /ext business RPC channel (D3').
+    - id: bc-capability-core
+      name: '@bc-agent/capability-core'

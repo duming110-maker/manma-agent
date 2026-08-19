@@ -1,0 +1,34 @@
+# BC Agent 用户端前端 —— Git 忽略
+# 变更记录：
+# - 2026-07-10 | 初始化（Next.js）
+# - 2026-07-10 | 迁移到 Vite：移除 .next / next-env.d.ts，改用 dist
+
+# 依赖
+node_modules
+/.pnp
+.pnp.js
+
+# Vite 构建产物
+dist
+dist-ssr
+*.local
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# 环境变量
+.env
+.env*.local
+
+# 系统文件
+.DS_Store
+*.pem
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/

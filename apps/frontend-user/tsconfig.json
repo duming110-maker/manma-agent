@@ -1,0 +1,27 @@
+{
+  // BC Agent 用户端前端 —— TypeScript 配置（Vite SPA）
+  // 变更记录：
+  // - 2026-07-10 | 初始化（Next.js，@/* 指向项目根）
+  // - 2026-07-10 | 迁移到 Vite：@/* 指向 ./src/*，jsx 改 react-jsx，去掉 next 插件
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

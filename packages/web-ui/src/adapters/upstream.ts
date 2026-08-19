@@ -1,0 +1,542 @@
+/**
+ * The official-domain single touchpoint of bc-web-ui (iron rule 2): every
+ * official wire type this shell names, every read projection over official
+ * state, and every service action against the official domains is defined
+ * here. Nothing outside this module may import @deepseek-ai data faces or
+ * invoke official services.
+ *
+ * Channel selection (the P2-b investigation finding): official client
+ * plugins do NOT speak raw RPC from the browser. ui-workspace / ui-sidebar
+ * consume the client runtime's object-layer services — `ctx.workspaces` /
+ * `ctx.sessions`, provided by @deepseek-ai/dsh-client-runtime — whose live
+ * snapshot stores carry the workspace.list + session.list baselines plus the
+ * `host/archived-sessions-changed` stream. The framework hands every
+ * root-scope slot component the standard selector hooks (useWorkspaces /
+ * useSessions — the ui-layout AppFrame precedent), and per-registration
+ * `inject` faces carry service actions (the ui-workspace precedent: its
+ * sidebar wiring calls exactly ctx.sessions.open / ctx.workspaces.
+ * archiveSession). This adapter follows both documented channels; the raw
+ * /api envelope stays a host-side concern.
+ *
+ * Because the feeds are live stores, data refresh is event-driven for free:
+ * initial load, the archive echo, and any other host-side change all arrive
+ * through the same subscription the official sidebar uses. No polling.
+ *
+ * P2-c additions — the new-task flow's write half: IWorkspaces.
+ * connectWorkspace is the documented New Session hand-off (blank-reuse else
+ * host `session.create({ workspaceId })`, D7's cwd guarantee), and
+ * ISession.prompt through ISessions.binding is the documented first-message
+ * verb (one text part, 'queue' admission — the official ConversationController
+ * .send shape). ISessions itself deliberately exposes no create: the
+ * workspace-domain wrapper IS the official client-plugin channel.
+ *
+ * P2-d additions — the conversation header's halves: the write half is
+ * ISession.rename (reached through ISessions.binding, the exact row→face hop
+ * of the official ui-workspace renameSession wrapper; rename is a per-session
+ * verb, not a list-service verb), whose success settles the 'title'
+ * projection immediately so every list-row reader updates live. The read half
+ * is projectSessionHeader: the current session's title/cwd plus its owning
+ * workspace's title resolved from the account roster (workspace.sessionIds),
+ * the same association the official grouping projection walks.
+ *
+ * P2-e additions — the skills page's read half: listSessionSkills wraps the
+ * official connection service's skills face (ctx.connection.api.skills.list,
+ * the `skill.list` RPC — the exact channel the official ui-skill '/' source
+ * consumes; canonical contracts: reference/upstream/packages/client/connection/
+ * src/client/index.ts ConnectionHandle + reference/upstream/packages/host/
+ * apiproxy/src/api/skills.ts SkillsApi/SkillEntry). The wire face is named
+ * here as a structural type (the carrier package is not a dependency of this
+ * plugin; the adapter is the sanctioned home for official wire shapes). The
+ * session coupling is the protocol's own (P0-4: sessionId is mandatory — the
+ * host resolves the project root from the session header's cwd), so the
+ * skills page lists the CURRENT session's catalog; the ui-skill guard is
+ * mirrored (subagent-addressed sessions carry no user catalog).
+ *
+ * P2-f additions — the locale half (iron rule 4): the official LocaleRuntime
+ * (ctx.locale, provided by dsh-client-locale) is consumed through the same
+ * single point. Its setLocale is the ONLY preference write (the exact channel
+ * of the official settings Language row — LocaleRuntime.setLocale →
+ * locale.preference in the Host settings.yaml, so bc copy and official
+ * components can never drift), and its snapshot surface is exposed through
+ * the inject face's reserved hooks compartment (the renderer binds the
+ * HostObservable into a useLocale selector hook; the render-side refresh
+ * rides the snapshot revision, the same signal behind the `t` seat).
+ */
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ISessions, IWorkspaces, SessionId, SessionListState, SessionSummary, WorkspaceId,
+  WorkspaceListState,
+} from '@deepseek-ai/dsh-client-runtime/client'
+import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pulls the ctx.locale Context merge (the dsh-client-locale
+// service face); cross-plugin collaboration goes through the service, never a
+// value import (client bundle purity gate).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+
+/**
+ * The official standard-feed hooks this shell consumes. They arrive as
+ * framework-injected props on every root-scope slot component (GlobalStandardProps
+ * merge — the PropsRuntime share already carries them; this restatement is the
+ * porting-discipline citation that keeps the official feed contract declared at
+ * the single point that owns all other official types).
+ */
+export type UpstreamFeedProps = {
+  /** Live session-list feed (rows + current selection). */
+  useSessions: SnapshotSelectorHook<SessionListState>
+  /** Live workspace-list feed (rows + registry-global archive set). */
+  useWorkspaces: SnapshotSelectorHook<WorkspaceListState>
+}
+
+/**
+ * The official session id under this shell's alias — the only spelling client
+ * modules may name (P2-b review item: direct `SessionId` type-imports outside
+ * the adapter are a porting-discipline deviation).
+ */
+export type UpstreamSessionId = SessionId
+/** The official workspace id under the same alias regime. */
+export type UpstreamWorkspaceId = WorkspaceId
+
+/**
+ * Service actions exposed to the sidebar (per-registration inject face; the
+ * ui-workspace browserInjected precedent). Each member wraps one documented
+ * service-method call — the whole official write surface of this card.
+ */
+export interface UpstreamFace {
+  /**
+   * Select a session as current (ISessions.open): the documented
+   * "switch conversation" channel — the official conversation surface follows
+   * the selection. Unknown ids fail loud (ids here come from the same list
+   * feed, so they are known).
+   * @param sessionId - session to open.
+   */
+  openSession(sessionId: SessionId): void
+  /**
+   * Archive a session (IWorkspaces.archiveSession, D13): hidden from every
+   * grouping surface, log and accounting slot kept, recoverable, idempotent.
+   * The row disappears through the live store echo — no manual refresh.
+   * @param sessionId - session to archive (registry-global; workspace
+   * membership is not part of the official signature).
+   */
+  archiveSession(sessionId: SessionId): void
+  /**
+   * Start a new task's session in a chosen workspace (D7: no workspace, no
+   * session). Maps to the documented New Session hand-off channel
+   * IWorkspaces.connectWorkspace — which reuses the workspace's live blank
+   * session when one exists (the runtime's auto-blank, exactly the official
+   * anti-duplicate rule) and otherwise mints one through the host
+   * `session.create({ workspaceId })` (cwd = the workspace directory). On
+   * resolution the id is already in the list store and binding()-addressable
+   * (official guarantee), so open + first prompt may follow synchronously.
+   * @param opts - target workspace (must be in the workspace list feed).
+   * @returns the reused or freshly created session id.
+   * @throws when the workspace is unknown or the host create fails
+   * (SessionCreateError / WorkspaceRuntime semantics, kept verbatim).
+   */
+  createSession(opts: { workspaceId: WorkspaceId }): Promise<SessionId>
+  /**
+   * Send the first (or any subsequent) user message into a session — the
+   * documented per-session verb ISession.prompt with one text part and
+   * 'queue' admission (the official ConversationController.send shape).
+   * Business failures also mirror into the official conversation snapshot
+   * (promptError), so the official surface keeps owning their display.
+   * @param sessionId - a listed session (the createSession resolution
+   * guarantee covers this shell's flow).
+   * @param text - prompt text, sent verbatim as one text block.
+   * @throws when the session is not addressable or the prompt is rejected.
+   */
+  promptSession(sessionId: SessionId, text: string): Promise<void>
+  /**
+   * Rename a session — the documented per-session verb ISession.rename,
+   * reached through the ISessions binding (the official ui-workspace
+   * renameSession wrapper's exact row→session-face hop). An explicit user
+   * title pins it against automatic regeneration; success settles the
+   * 'title' projection immediately, so the sidebar rows and this shell's
+   * header (both read the same live store) update without a refresh.
+   * @param sessionId - a listed session (binding-addressable).
+   * @param title - raw title text (the host normalizes acceptance).
+   * @throws when the session is not addressable or the rename is rejected.
+   */
+  renameSession(sessionId: SessionId, title: string): Promise<void>
+  /**
+   * List the user-invocable skill catalog of one session — the documented
+   * `skill.list` RPC through the connection service's payload-direct api face
+   * (the ui-skill consumption channel; the carrier mints the rpcId and parses
+   * the value). Semantics are the protocol's own: the host resolves the
+   * project root from the session header's cwd (project-level .agents/skills
+   * plus the user-level roots), so the catalog is per-session; subagent-
+   * addressed sessions carry no user catalog (the ui-skill guard, mirrored).
+   * @param sessionId - a listed session (the current selection's id).
+   * @returns the session's skill rows (name/description/whenToUse/user-only).
+   * @throws when the RPC is rejected (transport failures also reject — the
+   * caller owns the failure copy).
+   */
+  listSessionSkills(sessionId: SessionId): Promise<readonly UpstreamSkillEntry[]>
+  /**
+   * Switch the active UI locale — LocaleRuntime.setLocale, the official
+   * preference write (persists as locale.preference in the Host settings
+   * document; the official settings Language row writes through the same
+   * verb, so both entries stay one source).
+   * @param id - a registered locale id ('zh' | 'en'); unknown ids fail loud.
+   */
+  setLocale(id: 'zh' | 'en'): void
+}
+
+/**
+ * The registration's full inject-factory return: the action face plus the
+ * reserved hooks compartment (the render machinery binds the locale source
+ * into a useLocale selector hook — the compartment never reaches a component
+ * as a plain prop).
+ */
+export type UpstreamInjectFace = UpstreamFace & {
+  hooks: { locale: HostObservable<UpstreamLocaleSnapshot> }
+}
+
+/**
+ * Structural view of the official locale snapshot this shell consumes (the
+ * LocaleSnapshot wire shape; named here per the adapter regime — the carrier
+ * package is not a dependency of this plugin).
+ */
+export interface UpstreamLocaleSnapshot {
+  /** Active locale id. */
+  active: 'zh' | 'en'
+  /** Selectable locales in display order (self-described labels). */
+  locales: readonly { id: string; label: string }[]
+  /** Monotonic change counter (registry or active-locale changes). */
+  revision: number
+}
+
+/**
+ * Structural view of the official LocaleRuntime this adapter touches (the
+ * snapshot surface plus the preference write; the runtime additionally
+ * carries register/bind, consumed by the plugin body's dictionary effect).
+ */
+interface LocaleServiceWireFace extends HostObservable<UpstreamLocaleSnapshot> {
+  /**
+   * Switch the active locale (the only preference write entry).
+   * @param id - a registered locale id; unknown ids fail loud.
+   */
+  setLocale(id: string): void
+}
+
+/** One skill row of a session's catalog (the official SkillEntry wire projection). */
+export interface UpstreamSkillEntry {
+  /** Kebab-case identifier the user references as `/name` in the composer. */
+  name: string
+  /** Short routing description. */
+  description: string
+  /** Optional extra routing guidance (absent on the wire when unset). */
+  whenToUse: string | undefined
+  /** False marks a user-only skill (disable-model-invocation): invocable in the composer, absent from the model catalog. */
+  modelInvocable: boolean
+}
+
+/**
+ * Structural view of the official connection service's skills face (iron rule
+ * 2: the adapter names the official wire shapes; the carrier package is not a
+ * dependency, so the face is described by shape — the ui-skill `ctx.get(
+ * 'connection') as …` precedent — rather than by type-import).
+ */
+interface UpstreamSkillsWireFace {
+  /**
+   * The `skill.list` unary call, payload-direct form: the carrier mints the
+   * rpcId, wraps the envelope, and parses the value schema.
+   * @param payload - the session address (mandatory).
+   * @param signal - optional cancellation (unused by this shell's page fetch).
+   */
+  list(payload: { sessionId: SessionId }, signal?: AbortSignal): Promise<{
+    rpcId: unknown
+    result:
+      | { ok: true; value: { skills: readonly { name: string; description: string; whenToUse?: string; modelInvocable: boolean }[] } }
+      | { ok: false; error: { code: string; message: string } }
+  }>
+}
+
+/** One sidebar session row projected from the official feeds. */
+export interface UpstreamSessionRow {
+  id: SessionId
+  /** Blank rows carry the localized New-Session label (official rule). */
+  title: string
+  /** The provisional blank session (renderer may style it differently). */
+  blank: boolean
+  /** Epoch ms of the session's last activity. */
+  updatedAt: number
+}
+
+/** One workspace group section in the sidebar. */
+export interface UpstreamWorkspaceGroup {
+  /** Render key: the workspace id, or '' for the ungrouped bucket. */
+  key: string
+  /** Group header label (workspace title; ungrouped label for the bucket). */
+  label: string
+  /** Visible rows in account order (ungrouped: recency order). */
+  sessions: readonly UpstreamSessionRow[]
+}
+
+/** The sidebar's whole view of the official workspace/session domains. */
+export interface UpstreamSidebarData {
+  /** True until both official baselines (workspace.list + session.list) land. */
+  loading: boolean
+  /** Groups in host registry order; the ungrouped bucket trails when non-empty. */
+  groups: readonly UpstreamWorkspaceGroup[]
+}
+
+/**
+ * Visibility rule, ported from the official ui-workspace tree (sessionVisible):
+ * subagent-origin rows use their parent catalogs, archived rows are hidden
+ * everywhere (their accounting slots remain), and among blank rows only the
+ * currently selected New Session placeholder stays visible.
+ */
+function sessionVisible(
+  summary: SessionSummary, current: SessionId | undefined, archived: ReadonlySet<SessionId>,
+): boolean {
+  return summary.origin !== 'subagent'
+    && !archived.has(summary.id)
+    && (!summary.blank || summary.id === current)
+}
+
+/** Recency comparator (official byRecency): newest first, id as tiebreak. */
+function byRecency(a: SessionSummary, b: SessionSummary): number {
+  if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt
+  return a.id < b.id ? -1 : 1
+}
+
+/** Project one visible summary into the sidebar row shape. */
+function toRow(summary: SessionSummary): UpstreamSessionRow {
+  return {
+    id: summary.id,
+    title: summary.displayTitle,
+    blank: summary.blank,
+    updatedAt: summary.updatedAt,
+  }
+}
+
+/**
+ * Project the two official feed snapshots into the sidebar's grouped view —
+ * the read half of this adapter. Semantics mirror the official
+ * ui-workspace grouping (groupByWorkspace): one group per workspace in host
+ * order with members resolved from `sessionIds` in account order, then an
+ * ungrouped bucket (recency order) only when it has visible members.
+ * Accounts may lead the list pull; a member without a summary row is
+ * skipped until the summary lands (official behavior).
+ * @param workspaces - workspace-list snapshot (items + archive set + readiness).
+ * @param sessions - session-list snapshot (ids + byId + current).
+ * @returns the sidebar data (loading flag + groups).
+ */
+export function projectSidebarData(
+  workspaces: WorkspaceListState, sessions: SessionListState,
+): UpstreamSidebarData {
+  const archived = new Set(workspaces.archivedSessionIds)
+  const groups: UpstreamWorkspaceGroup[] = []
+  const accounted = new Set<SessionId>()
+  for (const workspace of workspaces.items) {
+    const rows: UpstreamSessionRow[] = []
+    for (const id of workspace.sessionIds) {
+      const summary = sessions.byId[id]
+      if (summary === undefined) continue
+      accounted.add(id)
+      if (!sessionVisible(summary, sessions.current, archived)) continue
+      rows.push(toRow(summary))
+    }
+    groups.push({ key: String(workspace.workspaceId), label: workspace.title, sessions: rows })
+  }
+  const stray = sessions.ids
+    .map(id => sessions.byId[id])
+    .filter((summary): summary is SessionSummary =>
+      summary !== undefined && !accounted.has(summary.id)
+      && sessionVisible(summary, sessions.current, archived))
+    .sort(byRecency)
+    .map(toRow)
+  if (stray.length > 0) groups.push({ key: '', label: '', sessions: stray })
+  return { loading: !workspaces.baselinesReady, groups }
+}
+
+/**
+ * Relative-time bucket of a session row's trailing label — structured (unit +
+ * magnitude) so the renderer localizes; a straight port of the official
+ * relativeTime buckets.
+ */
+export type UpstreamRelativeTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' | 'years'
+
+/** Structured relative time (magnitude 0 for 'now'). */
+export interface UpstreamRelativeTime {
+  unit: UpstreamRelativeTimeUnit
+  n: number
+}
+
+/**
+ * Bucket an epoch-ms timestamp against now (official bucket boundaries).
+ * @param updatedAt - epoch ms of the last activity.
+ * @param now - current epoch ms (injected; pure derivation).
+ * @returns the bucket and its magnitude.
+ */
+export function relativeTimeBucket(updatedAt: number, now: number): UpstreamRelativeTime {
+  const MIN = 60_000
+  const HOUR = 3_600_000
+  const DAY = 86_400_000
+  const diff = Math.max(0, now - updatedAt)
+  if (diff < MIN) return { unit: 'now', n: 0 }
+  if (diff < HOUR) return { unit: 'minutes', n: Math.floor(diff / MIN) }
+  if (diff < DAY) return { unit: 'hours', n: Math.floor(diff / HOUR) }
+  if (diff < 30 * DAY) return { unit: 'days', n: Math.floor(diff / DAY) }
+  if (diff < 365 * DAY) return { unit: 'months', n: Math.floor(diff / (30 * DAY)) }
+  return { unit: 'years', n: Math.floor(diff / (365 * DAY)) }
+}
+
+/** One selectable workspace in the welcome view's dropdown. */
+export interface UpstreamWorkspaceOption {
+  id: WorkspaceId
+  /** Display title (official row title; defaults to the path basename). */
+  title: string
+}
+
+/** The welcome view's whole view of the official workspace domain. */
+export interface UpstreamWorkspaceOptions {
+  /** True until the official workspace.list baseline lands. */
+  loading: boolean
+  /** Selectable workspaces in host registry order. */
+  items: readonly UpstreamWorkspaceOption[]
+  /**
+   * Most recently active workspace (official recency projection) — the
+   * welcome view's preselection target, falling back to the first item.
+   */
+  recentId: WorkspaceId | undefined
+}
+
+/**
+ * Project the official workspace-list snapshot into the welcome dropdown's
+ * options — the read half this card adds to the adapter.
+ * @param workspaces - workspace-list snapshot (items + recency + readiness).
+ * @returns the selectable options (loading flag + rows + preselect hint).
+ */
+export function projectWorkspaceOptions(
+  workspaces: WorkspaceListState,
+): UpstreamWorkspaceOptions {
+  return {
+    loading: !workspaces.baselinesReady,
+    items: workspaces.items.map(item => ({ id: item.workspaceId, title: item.title })),
+    recentId: workspaces.recentWorkspaceId,
+  }
+}
+
+/** The conversation header's view of the current session (P2-d read half). */
+export interface UpstreamSessionHeader {
+  id: SessionId
+  /**
+   * Durable log-backed title, absent until the host projects one — the
+   * in-place rename seeds this (not displayTitle: its id fallback would put a
+   * session id into the edit box).
+   */
+  durableTitle: string | undefined
+  /** Human-facing label: durable title, cwd basename, then session id. */
+  displayTitle: string
+  /** The provisional blank session (label shows the New-Session placeholder). */
+  blank: boolean
+  /** Canonical working directory, when the summary carries one. */
+  cwd: string | undefined
+  /**
+   * Owning workspace's title (workspace.account membership, archived ids
+   * included — slots are retained); undefined when the session is ungrouped,
+   * where the badge falls back to the cwd basename.
+   */
+  workspaceTitle: string | undefined
+}
+
+/**
+ * Project the two official feed snapshots into the conversation header's
+ * current-session view. Undefined while no session is current or its summary
+ * has not landed yet (the header renders nothing in that window — the frame's
+ * no-current rule takes the main area back to the welcome view anyway).
+ * @param workspaces - workspace-list snapshot (account roster for ownership).
+ * @param sessions - session-list snapshot (current + summaries).
+ * @returns the header data, or undefined with no current session.
+ */
+export function projectSessionHeader(
+  workspaces: WorkspaceListState, sessions: SessionListState,
+): UpstreamSessionHeader | undefined {
+  const current = sessions.current
+  if (current === undefined) return undefined
+  const summary = sessions.byId[current]
+  if (summary === undefined) return undefined
+  const workspace = workspaces.items.find(item => item.sessionIds.includes(current))
+  return {
+    id: summary.id,
+    durableTitle: summary.title,
+    displayTitle: summary.displayTitle,
+    blank: summary.blank,
+    cwd: summary.cwd,
+    workspaceTitle: workspace?.title,
+  }
+}
+
+/**
+ * Bind the official service faces into the shell's action surface. The
+ * failure contract is the services' own: open fails loud on unknown ids,
+ * archive rejections surface on the official list state, create/prompt
+ * rejections propagate to the caller (the welcome view's failure state) —
+ * all official behaviors, kept verbatim; the only local swallow is a console
+ * warn on archive so a rejected archive never escalates to an unhandled
+ * rejection.
+ * @param ctx - client root context (sessions/workspaces/locale injected at apply).
+ * @returns the inject face delivered to the shell frame component.
+ */
+export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
+  const sessions = ctx.sessions satisfies ISessions
+  const workspaces = ctx.workspaces satisfies IWorkspaces
+  // The connection service (the wire root; the ui-skill/ui-settings-general
+  // `ctx.get('connection') as …` precedent). Only its skills face is named.
+  const skills = (ctx.get('connection') as { api: { skills: UpstreamSkillsWireFace } }).api.skills
+  // The locale service (provided by dsh-client-locale; the Context merge is
+  // type-only — never a value import). It doubles as the HostObservable the
+  // hooks compartment exposes (getSnapshot + subscribe, structural).
+  const locale: LocaleServiceWireFace = ctx.locale
+  return {
+    openSession: (sessionId) => { sessions.open(sessionId) },
+    archiveSession: (sessionId) => {
+      void workspaces.archiveSession(sessionId).catch((reason: unknown) => {
+        console.warn('bc-web-ui: archive session rejected:', reason)
+      })
+    },
+    createSession: ({ workspaceId }) => workspaces.connectWorkspace(workspaceId),
+    promptSession: async (sessionId, text) => {
+      // binding() resolves any listed session (the createSession guarantee
+      // covers this shell's flow); a miss is loud by design.
+      const session = sessions.binding(sessionId)?.session
+      if (session === undefined) {
+        throw new Error(`bc-web-ui: session "${String(sessionId)}" is not addressable`)
+      }
+      const result = await session.prompt([{ type: 'text', text }], 'queue')
+      if (!result.ok) {
+        throw new Error(`bc-web-ui: prompt rejected: ${result.error.code}: ${result.error.message}`)
+      }
+    },
+    renameSession: async (sessionId, title) => {
+      // Row → session-face hop: rename is a per-session verb (ISession), not
+      // a list-service verb; the official ui-workspace wrapper's pattern kept
+      // verbatim.
+      const session = sessions.binding(sessionId)?.session
+      if (session === undefined) {
+        throw new Error(`bc-web-ui: session "${String(sessionId)}" is not addressable`)
+      }
+      const result = await session.rename(title)
+      if (!result.ok) {
+        throw new Error(`bc-web-ui: rename rejected: ${result.error.code}: ${result.error.message}`)
+      }
+    },
+    listSessionSkills: async (sessionId) => {
+      // Subagent-addressed sessions carry no user catalog (the ui-skill guard).
+      if (sessions.subagentAddress(sessionId) !== undefined) return []
+      const { result } = await skills.list({ sessionId })
+      if (!result.ok) {
+        throw new Error(`bc-web-ui: skill.list rejected: ${result.error.code}: ${result.error.message}`)
+      }
+      return result.value.skills.map(skill => ({
+        name: skill.name,
+        description: skill.description,
+        whenToUse: skill.whenToUse,
+        modelInvocable: skill.modelInvocable,
+      }))
+    },
+    setLocale: (id) => { locale.setLocale(id) },
+    hooks: { locale },
+  }
+}

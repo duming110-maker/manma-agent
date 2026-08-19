@@ -1,0 +1,31 @@
+# 默认品牌配置。
+# 构建入口：pnpm run dist -- --brand branding/default
+#
+# 设计：单一事实源，业务代码禁止出现品牌字面量（S7 grep 扫描）。
+# 用户可见项随品牌变；代码标识符（npm scope、存储键、磁盘路径）固定。
+# UI 文案字典按语言分键 { zh, en }。
+
+product:
+  # 产品名词典（docs/03 §9：UI 文案字典按语言分键）。默认品牌中英同名，
+  # 按单值提供（packages/web-ui/build.mjs 归一化为 { zh, en }）；中英不同
+  # 名的品牌改用分键形式：
+  #   name: { zh: "中文名", en: "English Name" }
+  name: "BC Agent"
+
+window:
+  title: "BC Agent"
+
+theme:
+  # 主色三档（亮色表）——P2-a 裁决：--bc-color-primary 系从 branding 取源，
+  # build.mjs 构建期注入样式令牌表（非运行时读文件）。CSS 颜色值任意写法。
+  primary: "rgb(37, 99, 235)"
+  primaryHover: "rgb(29, 78, 216)"
+  primaryActive: "rgb(30, 64, 175)"
+  # 主色三档（暗色表变体）。
+  primaryDark: "rgb(59, 130, 246)"
+  primaryDarkHover: "rgb(96, 165, 250)"
+  primaryDarkActive: "rgb(37, 99, 235)"
+  # 注：暗色滚动条（--bc-scrollbar-thumb*）是派生值（demo 黑 thumb 在暗底
+  # 不可见的适配），非品牌项——留在样式令牌表（styles.ts）标注，不进本表。
+
+# appId / icon / logo / installer 图 / updateUrl ... 待落地
