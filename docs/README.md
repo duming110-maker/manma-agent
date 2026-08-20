@@ -1,8 +1,40 @@
-# BC Agent 桌面版规格文档（v0.8，评审意见已吸收 + 中英双语 + 去库/知识库 + 强制选工作区）
+# BC Agent 桌面版规格文档（v0.9，现状对照已加 + 技能标准）
 
-- 版本：v0.8-draft（2026-08-18）
-- 状态：三方评审完成、核心问题已修订、中英双语已纳入、人工审核调整（去库/知识库、强制选工作区）已吸收；进入 P0 spike 前的基线
+- 版本：v0.9（2026-08-19；v0.8 为评审基线，本版新增「现状与规划对照」与「06-skill-standard.md」）
+- 状态：P0/P2 主体落地（代码事实见 [现状与规划对照](#现状与规划对照v09)）；开发前先读对照表，避免按已过时规划开工
 - 评审方式：将本目录全部文档 + `05-references.md` 中列出的外部材料一并交给评审 AI / 评审人
+
+## 现状与规划对照（v0.9）
+
+> 本套规格撰写于 2026-08-18（P0 前）。下表是**开发期事实基线**（代码现状以 HEAD `d13d8b2` 为准）：开发新功能前先读它，文档与代码的分层以本表为界。
+
+### 功能对照
+
+| 功能 | 文档定位 | 代码现状 | 差距 → 下一步 |
+|---|---|---|---|
+| 会话/对话区 | F1（P2） | 官方 ui-conversation 嵌入（bc 壳渲染 + 会话头） | 无差距 |
+| 工作区/会话列表 | F2（P0/P2） | 侧栏嵌官方 ui-workspace 浏览器（P1-4 修订；自研 SessionList.tsx 已删） | 无差距 |
+| 新建任务 | F1 | 官方 `startSession` + 官方 hero（自研 WelcomeView.tsx 已删） | 文档 §5 路由描述过时，以本表为准 |
+| 技能管理 | F3（P3b） | capability-core `/ext`：安装/卸载/改描述/列表（global+project）已可用 | 缺：frontmatter 校验、启停、useCount 统计、七层口径标注 |
+| 定时任务 | F4（P4） | UI + CRUD + 手动运行记录（JSON 文件）可用 | **缺执行引擎**：cron-parser 调度、到点起会话、SQLite 执行记录、never 权限钉死 |
+| 规则 | F5（P3a） | capability-core `bc_krm` 域 + `/ext krm.rules.*` + 设置页规则 CRUD + `systemPrompt.section()` 注入 | 无差距 |
+| 记忆 | F6（P3a） | capability-core `bc_krm` 域 + `/ext krm.memories.*` + 设置页记忆 CRUD（四类型/作用域/新鲜度/开关）+ `systemPrompt.context()` 索引注入（工作区过滤）+ **AI 自动沉淀**（`bc_write_memory` 工具，总开关门控 + 去重） | 无差距 |
+| 设置/凭证/模型 | F8（P5 完善） | 官方 settings 内嵌（bc「规则与记忆」section 已挂官方导航） | 无差距 |
+| 色调/皮肤 | F7（P2） | `--bc-*` 令牌 + branding 主色（编译期）+ 官方 `--dsw-*` 覆盖 | 皮肤插件化后置 |
+| 双语 | F10（P2） | zh/en 字典 + `t` seat（bc 命名空间） | S10 冒烟未落地 |
+| 桌面壳/安装包 | P1（Electron+NSIS） | Electron 壳（spawn dsh 子进程 + per-brand DSH_HOME + ELECTRON_RUN_AS_NODE）+ NSIS 安装包（`BC-Agent-<ver>-x64-Setup.exe`）+ 插件 tarball 首启安装 + sourcemap + 白标 | 核心通过；自动更新/托盘增强/PS7 检测/真机 NSIS 交互验证留 P5 |
+
+### 结构对照（文档 vs 代码）
+
+- 文档规划 6 个包（web-ui / capability-core / -workspace / -cron / -skillx / -krm），**代码实际 2 个**：capability-core 以 MVP 合并了 workspace 薄层、技能管理、定时任务存储；krm 未建。
+- 文档 F3/F4 的完整形态（skillx 管理流、cron 引擎）仍是**规划**，当前代码是**可用的 MVP**——两者以本表为界，开发时不得混为一谈。
+- `apps/frontend-user/` 保留为移植参考（不参与构建分发）。
+
+### 下一步开发基线（执行视图见 `任务看板.md`）
+
+1. **P3b 收尾**（技能启停/useCount、首次启动强制选工作区）
+2. **P1-0 桌面打包**（最后，依据 P0-5 契约）
+3. P5 发布：S8 storage 版本演练完整版、S10 全应用冒烟、备份/升级演练
 
 ## 路径映射（迁入独立仓库后）
 
@@ -13,7 +45,6 @@
 | `demo/...` | `reference/demo/...` |
 | `demo/docs/...` | `reference/design/...` |
 | `packages/...`、`apps/...`、`docs/...`（上游） | `reference/upstream/packages/...`、`reference/upstream/apps/...`、`reference/upstream/docs/...` |
-| `deepseek评审/`、`GLM评审问题/`、`kimi评审/` | `docs/` 下同名子目录（已随迁） |
 
 ## 一句话定位
 
@@ -56,7 +87,8 @@
 | 桌面化参考项目 | `demo/deepseek-harness-desktop/` |
 | 皮肤插件教学示例 | `demo/skin-plugin/` |
 | TencentDB-Agent-Memory | `demo/TencentDB-Agent-Memory/` |
-| 三方评审报告 | `deepseek评审/`、`GLM评审问题/`、`kimi评审/` |
+
+> 注：三方评审报告（`deepseek评审/`、`GLM评审问题/`、`kimi评审/`）与人工审核清单已于 2026-08-19 清理删除（结论已吸收进 v0.5 修订；原文可从 git 历史找回）。
 
 ## 已定案的关键决策（评审时可挑战，但需给出理由）
 
@@ -89,6 +121,7 @@
 
 ## 变更记录
 
+- v0.9（2026-08-19）：新增「现状与规划对照」节（代码事实基线，HEAD d13d8b2；含功能/结构/下一步基线三张表）；新增 [06-skill-standard.md](06-skill-standard.md)（SKILL.md 编写标准：dsh frontmatter 契约 + skill-creator 写法 + bc 应用字段）；任务看板刷新实际状态并拆解 P3a/P4（另见任务看板 v0.9 说明）。
 - v0.8（2026-08-18）：工作区改为「必须手动选择」——移除「默认工作区」自动种子（不再创建 `$DSH_HOME/workspaces/default/`，工作文件不落 C 盘）；首次启动强制走原生文件夹选择框，无工作区则不可进入会话；删除 workspaceExt.isDefault 字段；「自由任务」兜底措辞改为「会话必须显式选工作区」。
 - v0.7（2026-08-18）：人工审核后调整。去「库」（跨会话文件归集后置另做方案，删 capability-library / libraryIndex / F5 / R15/R6 及库相关路由）；去「知识库」（后置单独规划，删 knowledgeEntries / F6 / R16/R5 及知识相关注入段）；明确默认工作区路径与原生文件夹选择主交互；补上游未来若内置记忆的应对（R23）；功能重编号 F1–F10、§3/§4/§6 节号与交叉引用同步更新。
 - v0.6（2026-08-18）：新增中英双语（zh/en）需求。核对上游 `packages/client/locale/` 已内置完整双语框架（`ctx.locale` 注册表 + `t` seat + 设置 Language 行 + 持久化 `locale.preference`）；官方组件零成本双语，bc 自研外壳经 `ctx.locale.register(ns, { zh, en })` 落地；branding.yaml 文案字典改按语言分键；新增多语言规格（F10）、D14 决策、C10 约束、S10 冒烟、R22 风险；frontend-user 中文硬编码文案纳入 P2 抽取。

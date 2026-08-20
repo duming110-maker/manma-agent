@@ -173,15 +173,19 @@ export interface UpstreamFace {
    * @returns the installed skill name + path.
    */
   installSkill(opts: { sourcePath: string; target: 'global' | 'project'; workspacePath?: string }): Promise<UpstreamSkillInstallResult>
-  /** List the stored cron tasks (MVP; scheduling lands in P4). */
+  /** List the market catalog (host `skills.market.list`; bundled manifest). */
+  listMarketSkills(): Promise<UpstreamMarketSkill[]>
+  /** Install one market entry from GitHub (host `skills.market.install`). */
+  installMarketSkill(input: { id: string; target: 'global' | 'project'; workspacePath?: string }): Promise<UpstreamSkillInstallResult>
+  /** List the stored cron tasks (with live `nextRunAt`). */
   listCronTasks(): Promise<UpstreamCronTask[]>
-  /** Create a cron task (MVP; scheduling lands in P4). */
-  createCronTask(input: { name: string; description: string; cronExpression: string; workspaceId: string; modelName?: string }): Promise<UpstreamCronTask>
+  /** Create a cron task (P4: prompt + optional pinned model). */
+  createCronTask(input: { name: string; description: string; prompt: string; cronExpression: string; workspaceId: string; modelProvider?: string; model?: string }): Promise<UpstreamCronTask>
   /** Patch one stored cron task (edit fields / flip the enabled flag). */
-  updateCronTask(input: { id: string; name?: string; description?: string; cronExpression?: string; workspaceId?: string; modelName?: string; enabled?: boolean }): Promise<UpstreamCronTask>
+  updateCronTask(input: { id: string; name?: string; description?: string; prompt?: string; cronExpression?: string; workspaceId?: string; modelProvider?: string; model?: string; enabled?: boolean }): Promise<UpstreamCronTask>
   /** Remove one stored cron task. */
   deleteCronTask(id: string): Promise<void>
-  /** Record a manual run of a stored task in the run history. */
+  /** Queue a real run of a stored task (host executes it in a session). */
   runCronTask(id: string): Promise<UpstreamCronRun>
   /** List the recorded runs (newest first). */
   listCronRuns(): Promise<UpstreamCronRun[]>
@@ -201,6 +205,51 @@ export interface UpstreamFace {
   uninstallSkill(input: { name: string; scope: 'global' | 'project'; workspacePath?: string }): Promise<void>
   /** Rewrite one installed skill's description frontmatter field. */
   editSkill(input: { name: string; scope: 'global' | 'project'; workspacePath?: string; description: string }): Promise<void>
+  /** List the current workspaces from the official live store (the rules/memory form's scope dropdown). */
+  listWorkspaces(): Promise<readonly UpstreamWorkspaceOption[]>
+  /** List stored behavior rules (host `krm.rules.list`). */
+  listRules(): Promise<UpstreamRule[]>
+  /** Create a behavior rule (host `krm.rules.create`). */
+  createRule(input: { name: string; content: string; enabled?: boolean }): Promise<UpstreamRule>
+  /** Patch one stored rule (edit fields / flip the enabled flag). */
+  updateRule(input: { id: string; name?: string; content?: string; enabled?: boolean }): Promise<UpstreamRule>
+  /** Remove one stored rule. */
+  deleteRule(id: string): Promise<void>
+  /** List stored memories (host `krm.memories.list`; rows carry the resolved workspace title). */
+  listMemories(): Promise<UpstreamMemory[]>
+  /** Read the memory master switch (host `krm.memories.state`). */
+  getMemoriesState(): Promise<boolean>
+  /** Write the memory master switch (host `krm.memories.setState`). */
+  setMemoriesState(enabled: boolean): Promise<boolean>
+  /** Create a memory (four-type taxonomy; feedback forces why/howToApply). */
+  createMemory(input: {
+    name: string
+    description?: string
+    memoryType: UpstreamMemoryType
+    enabled?: boolean
+    content: string
+    why?: string
+    howToApply?: string
+    scope: 'global' | 'workspace'
+    workspaceId?: string
+    freshnessWarningDays?: number
+  }): Promise<UpstreamMemory>
+  /** Patch one stored memory (missing fields keep current values). */
+  updateMemory(input: {
+    id: string
+    name?: string
+    description?: string
+    memoryType?: UpstreamMemoryType
+    enabled?: boolean
+    content?: string
+    why?: string
+    howToApply?: string
+    scope?: 'global' | 'workspace'
+    workspaceId?: string
+    freshnessWarningDays?: number
+  }): Promise<UpstreamMemory>
+  /** Remove one stored memory. */
+  deleteMemory(id: string): Promise<void>
 }
 
 /**
@@ -258,24 +307,49 @@ export interface UpstreamSkillInstallResult {
   installedPath: string
 }
 
-/** One stored cron task (MVP shape; host capability-core JSON store). */
+/** One stored cron task (P4: real scheduling; the executor reads prompt + model + workspace). */
 export interface UpstreamCronTask {
   id: string
   name: string
   description: string
+  /** The instruction sent to the model when the task fires. */
+  prompt: string
   cronExpression: string
   workspaceId: string
-  modelName: string
+  /** Provider route id when the task pins a model (empty = default). */
+  modelProvider: string
+  /** Model id when the task pins a model (empty = default). */
+  model: string
   enabled: boolean
   createdAt: string
+  /** The scheduler's next occurrence (host-computed; absent when invalid/disabled). */
+  nextRunAt: string | undefined
 }
 
-/** One recorded cron run (manual trigger; real scheduling lands in P4). */
+/** One recorded cron run (real execution: queued → running → success/failed). */
 export interface UpstreamCronRun {
   id: string
   taskId: string
   taskName: string
+  kind: 'manual' | 'scheduled'
+  status: 'queued' | 'running' | 'success' | 'failed'
   triggeredAt: string
+  /** The agent session the run executed in (absent when creation failed). */
+  sessionId: string | undefined
+  /** Failure message when the run did not succeed. */
+  error: string | undefined
+  finishedAt: string | undefined
+}
+
+/** One market entry (docs/06-skill-standard §6; GitHub-sourced). */
+export interface UpstreamMarketSkill {
+  id: string
+  name: string
+  description: string
+  whenToUse: string | undefined
+  source: { type: 'github'; repo: string; ref: string; path: string }
+  tags: string[] | undefined
+  license: string | undefined
 }
 
 /** One selectable model option flattened from the host model catalog. */
@@ -297,6 +371,48 @@ export interface UpstreamInstalledSkill {
   scope: 'global' | 'project'
   workspacePath: string | undefined
   installedPath: string
+}
+
+/** One stored behavior rule (P3a krm; global-only). */
+export interface UpstreamRule {
+  id: string
+  name: string
+  /** Free-text style/persona/tone guidance, kept verbatim (user content). */
+  content: string
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+/** The four-type memory taxonomy (docs/04-spec §3.6, inherited from v0.8.1 §6). */
+export type UpstreamMemoryType = 'user' | 'feedback' | 'project' | 'reference'
+
+/** One stored memory (P3a krm). */
+export interface UpstreamMemory {
+  id: string
+  /** Title: list scannability + index-injection relevance cue. */
+  name: string
+  /** Description: enters the memory index section. */
+  description: string
+  memoryType: UpstreamMemoryType
+  /** Per-entry switch: disabled memories never enter the injection index. */
+  enabled: boolean
+  /** Markdown body (user content, not translated). */
+  content: string
+  /** Feedback-only (UI enforced). */
+  why: string | undefined
+  /** Feedback-only (UI enforced). */
+  howToApply: string | undefined
+  scope: 'global' | 'workspace'
+  /** Official WorkspaceId when workspace-scoped. */
+  workspaceId: string | undefined
+  /** Freshness threshold in days (default 30; per-type presets project 7 / reference 90). */
+  freshnessWarningDays: number
+  lastAccessedAt: string | undefined
+  createdAt: string
+  updatedAt: string
+  /** Host-resolved owning workspace title (absent for global rows). */
+  workspaceTitle: string | undefined
 }
 
 /** The generic `/ext` channel call face (structural; the carrier package is not a dependency). */
@@ -637,6 +753,16 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
       if (!result.ok) throw new Error(`bc-web-ui: skills.install rejected: ${result.error.code}: ${result.error.message}`)
       return result.value as UpstreamSkillInstallResult
     },
+    listMarketSkills: async () => {
+      const result = await extCall('/ext', 'skills.market.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: skills.market.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { version: number; skills: UpstreamMarketSkill[] }).skills
+    },
+    installMarketSkill: async (input) => {
+      const result = await extCall('/ext', 'skills.market.install', input)
+      if (!result.ok) throw new Error(`bc-web-ui: skills.market.install rejected: ${result.error.code}: ${result.error.message}`)
+      return result.value as UpstreamSkillInstallResult
+    },
     listCronTasks: async () => {
       const result = await extCall('/ext', 'cron.tasks.list', {})
       if (!result.ok) throw new Error(`bc-web-ui: cron.tasks.list rejected: ${result.error.code}: ${result.error.message}`)
@@ -691,6 +817,57 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
     editSkill: async (input) => {
       const result = await extCall('/ext', 'skills.edit', input)
       if (!result.ok) throw new Error(`bc-web-ui: skills.edit rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    // Rules + memories (P3a krm) — the workspace list reads the official live
+    // store snapshot (the shell frame's useWorkspaces projection), not /ext.
+    listWorkspaces: () => Promise.resolve(projectWorkspaceOptions(workspaces.list.getSnapshot()).items),
+    listRules: async () => {
+      const result = await extCall('/ext', 'krm.rules.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: krm.rules.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; rules: UpstreamRule[] }).rules
+    },
+    createRule: async (input) => {
+      const result = await extCall('/ext', 'krm.rules.create', input)
+      if (!result.ok) throw new Error(`bc-web-ui: krm.rules.create rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; rule: UpstreamRule }).rule
+    },
+    updateRule: async (input) => {
+      const result = await extCall('/ext', 'krm.rules.update', input)
+      if (!result.ok) throw new Error(`bc-web-ui: krm.rules.update rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; rule: UpstreamRule }).rule
+    },
+    deleteRule: async (id) => {
+      const result = await extCall('/ext', 'krm.rules.delete', { id })
+      if (!result.ok) throw new Error(`bc-web-ui: krm.rules.delete rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    listMemories: async () => {
+      const result = await extCall('/ext', 'krm.memories.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: krm.memories.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; memories: UpstreamMemory[] }).memories
+    },
+    getMemoriesState: async () => {
+      const result = await extCall('/ext', 'krm.memories.state', {})
+      if (!result.ok) throw new Error(`bc-web-ui: krm.memories.state rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; enabled: boolean }).enabled
+    },
+    setMemoriesState: async (enabled) => {
+      const result = await extCall('/ext', 'krm.memories.setState', { enabled })
+      if (!result.ok) throw new Error(`bc-web-ui: krm.memories.setState rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; enabled: boolean }).enabled
+    },
+    createMemory: async (input) => {
+      const result = await extCall('/ext', 'krm.memories.create', input)
+      if (!result.ok) throw new Error(`bc-web-ui: krm.memories.create rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; memory: UpstreamMemory }).memory
+    },
+    updateMemory: async (input) => {
+      const result = await extCall('/ext', 'krm.memories.update', input)
+      if (!result.ok) throw new Error(`bc-web-ui: krm.memories.update rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; memory: UpstreamMemory }).memory
+    },
+    deleteMemory: async (id) => {
+      const result = await extCall('/ext', 'krm.memories.delete', { id })
+      if (!result.ok) throw new Error(`bc-web-ui: krm.memories.delete rejected: ${result.error.code}: ${result.error.message}`)
     },
     hooks: { locale },
   }

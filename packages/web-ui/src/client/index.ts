@@ -185,6 +185,9 @@ export function apply(ctx: ClientContext): void {
   // The bc 规则与记忆 section rides the official settings shell's section
   // slot (declared by ui-settings-general's SettingsRoot, the same extension
   // point Models / Plugins use); `slots.inject` waits for that declaration.
+  // The section is a real CRUD page (P3a), so the registration injects the
+  // same adapter face the shell frame receives — the krm.* /ext actions and
+  // the locale hooks compartment ride it.
   const t = ctx.locale.bind(BC_NS)
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -192,5 +195,6 @@ export function apply(ctx: ClientContext): void {
     order: 30,
     label: () => t('settings.rulesMemoryNav'),
     locale: BC_NS,
+    inject: () => createUpstreamFace(ctx),
   }, RulesMemorySection))
 }

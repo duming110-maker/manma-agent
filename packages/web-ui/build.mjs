@@ -25,6 +25,8 @@
 import { build } from 'esbuild'
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 /** Package name = graph row id = module-table registration key. */
 const PKG_NAME = '@bc-agent/web-ui'
@@ -32,8 +34,13 @@ const PKG_NAME = '@bc-agent/web-ui'
 /** Shell module-table words this bundle requires, plus the runtime exemption. */
 const CLIENT_EXTERNALS = ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-runtime/client']
 
-/** The branding source of truth, relative to this package (repo-root branding/). */
-const BRANDING_YAML = new URL('../../branding/default/branding.yaml', import.meta.url)
+/** The branding source of truth. `BC_BRAND_DIR` lets a branded build point at
+ * `branding/<name>` (P1-0 dist pipeline + S7); the default mirrors the repo
+ * layout `branding/default/` (relative to this package). An absolute Windows
+ * brand dir must go through pathToFileURL (new URL rejects it). */
+const BRANDING_YAML = process.env.BC_BRAND_DIR !== undefined && process.env.BC_BRAND_DIR !== ''
+  ? pathToFileURL(join(process.env.BC_BRAND_DIR, 'branding.yaml'))
+  : new URL('../../branding/default/branding.yaml', import.meta.url)
 
 /**
  * Parse the branding yaml slice this build consumes: a strict subset — two
@@ -165,28 +172,39 @@ await build({
 // esbuild `define`: every __BC_BRANDING__ identifier reference in the source
 // becomes the JSON literal (see src/client/branding.ts — the declared
 // identifier has no runtime fallback, an uninjected build would throw).
-const result = await build({
+await build({
   entryPoints: ['src/client/index.ts'],
   bundle: true,
   format: 'cjs',
   platform: 'browser',
   target: 'es2022',
-  write: false,
+  // write:true + outfile is required for an EXTERNAL sourcemap (write:false
+  // rejects `sourcemap:'external'` — no output path to name the map); esbuild
+  // writes lib/client.js + lib/client.js.map, then we re-wrap the JS below.
+  outfile: 'lib/client.js',
+  sourcemap: 'external',
   external: CLIENT_EXTERNALS,
   jsx: 'automatic',
   define: { __BC_BRANDING__: JSON.stringify(JSON.stringify(branding)) },
 })
-const code = result.outputFiles[0].text
+// esbuild's own client.js carries the `//# sourceMappingURL` comment; strip it
+// before wrapping, then append ours after the shell so the browser resolves the
+// served `client.js.map` (P0-5 contract C9). The 8-line shell offset is a known
+// DevTools tolerance — the sourcesContent payload is the debugging value.
+const rawCode = readFileSync(new URL('./lib/client.js', import.meta.url), 'utf8')
+  .replace(/\n?\/\/# sourceMappingURL=.*\n?$/, '')
 const wrapped = `window.__ModuleLoader__.load({
   id: '${PKG_NAME}',
   factory: (require) => {
     const module = { exports: {} }
     const exports = module.exports
-${code}
+${rawCode}
     return module.exports
   },
 })
+//# sourceMappingURL=client.js.map
 `
 
 await writeFile('lib/client.js', wrapped, 'utf8')
 console.log(`-> lib/client.js (${wrapped.length} bytes)`)
+console.log('-> lib/client.js.map (sourcemap)')

@@ -18,10 +18,20 @@ packages:
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': false
+  # electron-builder 的 Squirrel 安装器依赖（我们用 NSIS target，其 build
+  # script 无谓下载；显式拒绝，安装仍成功）。
+  electron-winstaller: false
   esbuild: true
   koffi: true
   node-pty: true
   protobufjs: false
+  # electron 的 install 脚本下载运行时二进制（P1-0 打包必需）。
+  electron: true
+# node-pty spawn-helper 解析补丁（P1-0 桌面打包必需，从上游 workspace 拷贝，
+# upstream.json 已登记）。让 node-pty 优先经 DSH_NODE_PTY_SPAWN_HELPER /
+# execPath 兄弟文件解析 spawn-helper，避免打包后 app.asar 字符串替换失效。
+patchedDependencies:
+  node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.7'
   - '@deepseek-ai/dsh-agent-instructions@0.1.0-rc.7'

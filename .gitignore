@@ -19,6 +19,12 @@ Thumbs.db
 # ---- Electron build artifacts ----
 apps/desktop/release/
 apps/desktop/out/
+apps/desktop/dist/
+# P1-0 dist 构建产物（插件 tarball / branding.json / cordis.patch.yml 拷贝）。
+# build/ 里默认品牌的 icon.ico/png 随仓库提交（默认图标资源），不 ignore；
+# 只有 dist 按品牌生成的卸载 nsh 忽略。
+apps/desktop/resources/
+apps/desktop/build/delete-appdata.generated.nsh
 
 # ---- desktop spike data (dsh DSH_HOME: profiles, storages, session logs) ----
 apps/desktop/.data/

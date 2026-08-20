@@ -11,9 +11,14 @@
  *                        for any future code added here.
  */
 import { build } from 'esbuild'
-import { mkdir } from 'node:fs/promises'
+import { cp, mkdir } from 'node:fs/promises'
 
 await mkdir('lib', { recursive: true })
+
+// The skill-market manifest rides the built package: copied next to
+// lib/index.js so the host reads it through import.meta.url (a link: install
+// keeps the source tree reachable, but a packed artifact must carry it).
+await cp('market/skills-market.json', 'lib/skills-market.json')
 
 await build({
   entryPoints: ['src/index.ts'],

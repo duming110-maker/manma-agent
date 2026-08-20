@@ -28,7 +28,9 @@
 ```sh
 pnpm install                     # 安装 workspace 依赖（首次）
 pnpm --filter frontend-user dev  # 起 frontend-user 开发服务器 → http://localhost:3000
-pnpm --filter desktop dev        # 起 dsh Host（叠加 bc-agent 布局补丁，127.0.0.1 随机端口，日志打印地址）
+pnpm --filter @bc-agent/web-ui build
+pnpm --filter @bc-agent/capability-core build
+pnpm --filter desktop dev       # 起 dsh Host（叠加 bc-agent 布局补丁，127.0.0.1 随机端口，日志打印地址）
 pnpm --filter frontend-user build
 pnpm run typecheck               # 全 workspace typecheck
 pnpm run lint                    # 全 workspace lint

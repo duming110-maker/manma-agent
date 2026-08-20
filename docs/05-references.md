@@ -28,7 +28,8 @@
 | 调度/作业 | `packages/schedule/schedule/README.md`、`packages/jobs/jobs/README.md`、`vendor/timer/README.md` | session 级提醒 vs 进程内作业 vs 毫秒定时器 |
 | 桌面参考 | `demo/deepseek-harness-desktop/dsh-plugin-desktop/`（`README.md`、`src/client/advanced-shell.ts`、`cordis.patch.yml`、`docs/plugin-services.md`） | 架构纪律 + 高级模式验证 |
 | TAM | `demo/TencentDB-Agent-Memory/`（`MemoryCore/README_CN.md`、`tdai-gateway.standalone.yaml`、`openclaw-plugin/README.md`、`INSTALL.md` dsh 章节） | 记忆引擎评估 |
-| 三方评审报告 | `deepseek评审/评审报告.md`、`GLM评审问题/评审报告-2026-08-18.md`（+事实核查）、`kimi评审/评审报告-v0.4.md`（+事实核查附录） | v0.5 修订依据 |
+
+> 注：三方评审报告（`deepseek评审/`、`GLM评审问题/`、`kimi评审/`）已于 2026-08-19 清理删除——结论已吸收进 v0.5 修订（见本文件头部 v0.5 说明），原文可从 git 历史找回。
 
 ## 2. 概念映射表：v0.8.1（AgentScope 栈）→ BC Agent Desktop（dsh 栈）
 

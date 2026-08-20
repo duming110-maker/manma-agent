@@ -1,3 +1,9 @@
+---
+name: bc-agent-upstream-sync
+description: 更新 reference/ 只读资料镜像。当需要拉取/核对上游 deepseek-harness 最新源码、文档或契约（如 slot、workspace、skills、locale 的变更）时使用。
+whenToUse: 用户说「拉一下最新上游」「同步 reference」「看看上游某契约是不是变了」
+---
+
 # BC Agent reference 同步
 
 用途：更新 `reference/`（只读资料镜像）。
@@ -6,6 +12,7 @@
 
 - 同事说「拉一下最新上游看看」。
 - 需要核对上游新契约（读 docs/、packages/*/AGENTS.md）。
+- 升级前核对上游 skills/locale/slot 契约是否变化（docs/06-skill-standard.md 与升级盯梢清单的出处）。
 
 ## 怎么做
 

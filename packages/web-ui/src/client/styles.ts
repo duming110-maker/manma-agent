@@ -1224,6 +1224,88 @@ body[data-ds-dark-theme] .bc-web-ui-frame {
   color: var(--bc-text-secondary);
 }
 
+/* ---- P3a CRUD: two-tab rules/memory bar + pane + compact empty state ---- */
+.bc-web-ui-settings-krm-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 20px;
+  border-bottom: 1px solid var(--bc-border);
+}
+.bc-web-ui-settings-krm-tab {
+  position: relative;
+  display: flex;
+  height: 36px;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--bc-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+.bc-web-ui-settings-krm-tab:hover { color: var(--bc-text-primary); }
+.bc-web-ui-settings-krm-tab-active { color: var(--bc-text-primary); }
+.bc-web-ui-settings-krm-tab-active::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 1px 1px 0 0;
+  background: var(--bc-color-primary);
+}
+.bc-web-ui-settings-krm-pane {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+.bc-web-ui-settings-krm-toolbar {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+}
+/* Memory master switch group: pinned left via auto margin, CTA stays right. */
+.bc-web-ui-settings-krm-master {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+.bc-web-ui-settings-krm-master-label {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-settings-krm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 40px 16px;
+  text-align: center;
+}
+/* Stale-memory warning badge (freshness > threshold): warning-tinted, distinct from the neutral type badge. */
+.bc-web-ui-skill-badge-warn {
+  background: color-mix(in srgb, var(--bc-color-warning) 14%, transparent);
+  color: var(--bc-color-warning);
+}
+/* Required-field asterisk (feedback Why / How-to-apply). */
+.bc-web-ui-form-required {
+  color: var(--bc-color-error);
+}
+.bc-web-ui-form-input-inline {
+  max-width: 160px;
+}
+
 /* ===== Page CTA + cron rows (P1-4/P1-5) ===== */
 /* CTA geometry = the demo's header buttons (h-32, r8, 14px icon, 6px gap). */
 .bc-web-ui-page-cta {

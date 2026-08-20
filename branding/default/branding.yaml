@@ -28,4 +28,23 @@ theme:
   # 注：暗色滚动条（--bc-scrollbar-thumb*）是派生值（demo 黑 thumb 在暗底
   # 不可见的适配），非品牌项——留在样式令牌表（styles.ts）标注，不进本表。
 
-# appId / icon / logo / installer 图 / updateUrl ... 待落地
+# P1-0 桌面壳品牌项（apps/desktop 构建与运行时消费；docs/03 §8/§9）。
+# 注意：值必须是双引号字符串（packages/web-ui/build.mjs 的严格解析器只接受
+# 双引号字符串或 { zh, en } flow map；布尔值写作 "true"/"false" 字符串）。
+desktop:
+  # 数据目录标识：per-brand 独立 DSH_HOME = %APPDATA%/<brandId>/dsh-home
+  #（品牌间数据隔离 + 卸载可判定，docs/03 §9）。随品牌变。
+  brandId: "bc-agent"
+  # electron-builder 稳定升级身份（AppUserModelId）。随品牌变。
+  appId: "ai.bcagent.desktop"
+  # 安装目录/快捷方式/窗口/进程显示名（ASCII）。随品牌变。
+  productName: "BC Agent"
+  # 安装包文件名前缀（filesystem-safe，作为 NSIS artifactName 前缀）。随品牌变。
+  executableName: "BC-Agent"
+  # 应用图标（PNG ≥256）与托盘图标，相对 branding/<name>/ 目录。随品牌变。
+  icon: "icon.png"
+  trayIcon: "tray-icon.png"
+  # 更新源 URL（P5 自动更新预留；空 = 不启用）。
+  updateUrl: ""
+  # 卸载时是否删除 %APPDATA%/<brandId>（「卸载干净」；字符串布尔）。
+  uninstallerDeleteAppData: "true"

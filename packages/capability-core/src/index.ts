@@ -6,395 +6,234 @@
  *
  * Endpoints (all loopback-only):
  * - `ext.probe`            echo (spike feasibility probe)
- * - `skills.install`       copy a local skill directory into the global or a
- *                          project skill root (P1-4 MVP; the real install flow
- *                          moves to capability-skillx later)
+ * - `skills.install`       copy a local skill directory into a skill root
+ *                          (frontmatter-validated per docs/06-skill-standard)
  * - `skills.list`          enumerate the global + project install roots
  * - `skills.uninstall`     remove one installed skill directory
  * - `skills.edit`          rewrite a skill's `description` frontmatter field
+ * - `skills.market.list`   read the bundled market manifest (06-skill-standard §6)
+ * - `skills.market.install` fetch a manifest entry from GitHub + validate + install
  * - `cron.tasks.create`    append a task to the JSON-backed task store
- * - `cron.tasks.list`      read the task store
+ * - `cron.tasks.list`      read the task store (with live `nextRunAt`)
  * - `cron.tasks.update`    patch one stored task (edit / enable toggle)
  * - `cron.tasks.delete`    remove one stored task
- * - `cron.tasks.run`       record a manual run in the run-history store
+ * - `cron.tasks.run`       queue a manual run (real execution, not a stub)
  * - `cron.runs.list`       read the run-history store
+ * - `krm.rules.list`       list stored behavior rules (bc-krm domain)
+ * - `krm.rules.create`     append a behavior rule
+ * - `krm.rules.update`     patch one stored rule (edit / enable toggle)
+ * - `krm.rules.delete`     remove one stored rule
+ * - `krm.memories.list`    list stored memories (global + workspace scoped)
+ * - `krm.memories.create`  append a memory (four-type taxonomy)
+ * - `krm.memories.update`  patch one stored memory
+ * - `krm.memories.delete`  remove one stored memory
+ * - `krm.memories.state`   read the memory master switch
+ * - `krm.memories.setState` write the memory master switch
  *
- * MVP storage: cron tasks live in a JSON file under `$DSH_HOME` (survives
- * restart; the real capability-cron will move to `ctx.storage` domain +
- * cron-parser scheduling). Skill install copies the picked directory verbatim.
+ * The cron scheduler starts with the plugin fiber (`ctx.interval`, the
+ * cordis timer mixin the dsh base mounts) and executes due tasks through
+ * `ctx.agents` + `ctx.workspaceRegistry` (see src/cron.ts for the recipe).
+ *
+ * P3a krm: the `bc-krm` domain (rules/memories tables, defineDomain mechanism)
+ * is opened at apply; the two system-prompt seams (rules section + memory
+ * index context, see src/krm.ts) register on the same fiber. Fail loud: a
+ * domain open failure rejects apply and fails the plugin load.
  *
  * @module @bc-agent/capability-core
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import { homedir } from 'node:os'
+import type { WorkspaceRegistry } from '@deepseek-ai/dsh-workspace'
+import {
+  badRequest, installSkill, listSkills, uninstallSkill, editSkill,
+  readMarketManifest, skillTargetDir,
+} from './skill-core.ts'
+import { installMarketEntry } from './market.ts'
+import {
+  createCronTask, listCronTasks, updateCronTask, deleteCronTask, listCronRuns,
+  runCronTaskNow, startCronScheduler, createSchedulerState, type CronHostServices,
+} from './cron.ts'
+import { KrmService, registerInjection } from './krm.ts'
+import { createMemoryTool } from './memory-tool.ts'
 
 /** The dedicated business RPC channel (03-architecture D3'); `/api` is reserved. */
 const EXT_CHANNEL = '/ext'
 
-/** Wait for the connection service: the channel registry lives on it. */
-export const inject = ['connection']
+/** Wait for the connection service: the channel registry lives on it. The
+ * `timer` mixin (cordis plugin) is injected so the cron scheduler may use
+ * `ctx.interval` (fiber-bound disposal); `agentDefaultModel` feeds the cron
+ * executor's model resolution (task pin or deployment default); `storageDomain`
+ * opens the bc-krm domain; `systemPrompt` registers the rules/memory seams;
+ * `tools` registers the AI-sedimented memory tool (bc_write_memory). */
+export const inject = [
+  'connection', 'agents', 'workspaceRegistry', 'timer', 'agentDefaultModel', 'storageDomain', 'systemPrompt', 'tools',
+]
 
-/** Business error in the envelope's documented shape. */
-function badRequest(message: string): { ok: false; error: { code: string; message: string; details: { issues: [] } } } {
-  return { ok: false, error: { code: 'bad-request', message, details: { issues: [] } } }
-}
+/** AI 自动沉淀记忆的模型引导段（docs/04-spec §3.6）：只在记忆总开关开启时贡献
+ * 文本（空段不产生任何内容），与工具的动态注册保持一致——开关关闭时模型既
+ * 看不到工具也看不到写记忆的引导。 */
+const MEMORY_SYSTEM_PROMPT = [
+  '## 记忆写入',
+  '当用户表达了值得跨会话长期记住的内容时，调用 bc_write_memory 工具写入记忆：',
+  '- 用户的持久偏好、身份背景、对 AI 行为的纠正或肯定（user / feedback 类型）',
+  '- 工作区的进展、决策、截止日期（project 类型，相对日期转绝对日期）',
+  '- 外部系统、文档、配置的位置（reference 类型）',
+  '不要记忆：代码可直接推导的、git 历史中的、已写在规则里的、一次性细节、纯事实查询结果。',
+].join('\n')
 
-/** Resolve the effective DSH home (per-brand dir when DSH_HOME is set). */
-function dshHome(): string {
-  return process.env.DSH_HOME || join(homedir(), '.dsh')
-}
+/** The executor's view of the injected services. */
+const hostOf = (ctx: Context): CronHostServices => ({
+  agents: ctx.agents,
+  workspaceRegistry: ctx.workspaceRegistry as WorkspaceRegistry,
+  // The default-model service's Context declaration lives in its own package
+  // (not a dependency here); spelled out structurally, same as the timer.
+  defaultModel: (ctx as unknown as { agentDefaultModel: CronHostServices['defaultModel'] }).agentDefaultModel,
+})
 
-// ---------------------------------------------------------------------------
-// skills.install
-// ---------------------------------------------------------------------------
-
-/** Read one single-line frontmatter field (`key: value`, optional quotes). */
-function skillField(text: string, key: string): string | undefined {
-  const m = new RegExp(`^${key}:\\s*["']?([^"'\\n]+)["']?\\s*$`, 'm').exec(text)
-  return m?.[1]?.trim() || undefined
-}
-
-/** Extract the skill name from SKILL.md frontmatter (`name:`), else the dir basename. */
-function skillNameFrom(dir: string): string {
-  const md = join(dir, 'SKILL.md')
-  if (!existsSync(md)) return basename(dir)
-  return skillField(readFileSync(md, 'utf8'), 'name') || basename(dir)
-}
-
-/** One parsed installed skill (SKILL.md metadata + install scope + on-disk path). */
-interface InstalledSkillRow {
-  name: string
-  description: string
-  whenToUse: string | undefined
-  modelInvocable: boolean
-  scope: 'global' | 'project'
-  workspacePath: string | undefined
-  installedPath: string
-}
-
-/** Parse one installed skill directory; undefined when it carries no SKILL.md. */
-function skillInfoFrom(dir: string): Omit<InstalledSkillRow, 'scope' | 'workspacePath' | 'installedPath'> | undefined {
-  const md = join(dir, 'SKILL.md')
-  if (!existsSync(md)) return undefined
-  const text = readFileSync(md, 'utf8')
-  return {
-    name: skillField(text, 'name') || basename(dir),
-    description: skillField(text, 'description') || '',
-    whenToUse: skillField(text, 'whenToUse'),
-    modelInvocable: !/^disable-model-invocation:\s*(true|yes|on|1)\s*$/im.test(text),
-  }
-}
-
-/** Immediate subdirectories of a skill root (missing root → no entries). */
-function listSkillDirs(root: string): string[] {
-  if (!existsSync(root)) return []
-  return readdirSync(root, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => join(root, entry.name))
-}
-
-/** Resolve the install root for a global/project target (mirrors `skills.install`). */
-function skillTargetDir(scope: 'global' | 'project', workspacePath: string | undefined): string {
-  return scope === 'global' ? join(dshHome(), 'skills') : join(workspacePath as string, '.agents', 'skills')
-}
-
-function installSkill(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as { sourcePath?: string; target?: string; workspacePath?: string }
-  if (typeof p.sourcePath !== 'string' || p.sourcePath.trim() === '') return badRequest('skills.install requires sourcePath')
-  if (p.target !== 'global' && p.target !== 'project') return badRequest('skills.install requires target "global" | "project"')
+/** Resolve the target skill root for a market/local install payload. */
+function targetDirOf(payload: unknown): { ok: true; targetDir: string } | { ok: false; error: unknown } {
+  const p = payload as { target?: string; workspacePath?: string }
+  if (p.target !== 'global' && p.target !== 'project') return badRequest('requires target "global" | "project"')
   if (p.target === 'project' && (typeof p.workspacePath !== 'string' || p.workspacePath.trim() === '')) {
-    return badRequest('skills.install project target requires workspacePath')
+    return badRequest('project target requires workspacePath')
   }
-  if (!existsSync(join(p.sourcePath, 'SKILL.md'))) return badRequest(`no SKILL.md found under ${p.sourcePath}`)
-  const name = skillNameFrom(p.sourcePath)
-  const targetDir = p.target === 'global'
-    ? join(dshHome(), 'skills')
-    : join(p.workspacePath as string, '.agents', 'skills')
-  const installedPath = join(targetDir, name)
-  mkdirSync(targetDir, { recursive: true })
-  cpSync(p.sourcePath, installedPath, { recursive: true })
-  return { ok: true, value: { ok: true, name, installedPath } }
+  return { ok: true, targetDir: skillTargetDir(p.target, p.workspacePath) }
 }
-
-/** Validate a skill edit/uninstall address and return its target dir (or a badRequest result). */
-function skillAddress(name: string | undefined, scope: string | undefined, workspacePath: string | undefined):
-  | { ok: true; targetDir: string }
-  | { ok: false; error: unknown } {
-  if (typeof name !== 'string' || name.trim() === '') return badRequest('skill operation requires name')
-  if (scope !== 'global' && scope !== 'project') return badRequest('skill operation requires scope "global" | "project"')
-  if (scope === 'project' && (typeof workspacePath !== 'string' || workspacePath.trim() === '')) {
-    return badRequest('skill operation with project scope requires workspacePath')
-  }
-  const targetDir = skillTargetDir(scope, workspacePath)
-  if (dirname(join(targetDir, name.trim())) !== targetDir) return badRequest('skill operation name must be a single path segment')
-  return { ok: true, targetDir }
-}
-
-function listSkills(payload: unknown): { ok: true; value: unknown } {
-  const p = payload as { workspacePaths?: unknown }
-  const paths = Array.isArray(p.workspacePaths)
-    ? p.workspacePaths.filter((item): item is string => typeof item === 'string')
-    : []
-  const rows: InstalledSkillRow[] = []
-  for (const dir of listSkillDirs(join(dshHome(), 'skills'))) {
-    const info = skillInfoFrom(dir)
-    if (info !== undefined) rows.push({ ...info, scope: 'global', workspacePath: undefined, installedPath: dir })
-  }
-  for (const workspacePath of paths) {
-    for (const dir of listSkillDirs(join(workspacePath, '.agents', 'skills'))) {
-      const info = skillInfoFrom(dir)
-      if (info !== undefined) rows.push({ ...info, scope: 'project', workspacePath, installedPath: dir })
-    }
-  }
-  rows.sort((a, b) => a.name.localeCompare(b.name))
-  return { ok: true, value: { ok: true, skills: rows } }
-}
-
-function uninstallSkill(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as { name?: string; scope?: string; workspacePath?: string }
-  const address = skillAddress(p.name, p.scope, p.workspacePath)
-  if (!address.ok) return address
-  rmSync(join(address.targetDir, p.name!.trim()), { recursive: true, force: true })
-  return { ok: true, value: { ok: true } }
-}
-
-/** YAML-safe single-line scalar for a frontmatter rewrite. */
-function yamlScalar(value: string): string {
-  const single = value.replace(/\r?\n/g, ' ').trim()
-  return /^[A-Za-z0-9_./,()\- \u4e00-\u9fff]+$/.test(single) && !single.includes('#') ? single : JSON.stringify(single)
-}
-
-/** Set a single-line frontmatter field in place, inserting it after `name:` when absent. */
-function setFrontmatterField(raw: string, key: string, value: string): string {
-  const lines = raw.split('\n')
-  const line = (i: number): string => lines[i] ?? ''
-  if (line(0).replace(/\r$/, '') !== '---') return raw
-  let close = -1
-  for (let i = 1; i < lines.length; i += 1) {
-    if (line(i).replace(/\r$/, '') === '---') { close = i; break }
-  }
-  if (close < 0) return raw
-  const field = new RegExp(`^${key}:`)
-  for (let i = 1; i < close; i += 1) {
-    if (field.test(line(i).replace(/\r$/, ''))) {
-      lines[i] = `${key}: ${yamlScalar(value)}`
-      return lines.join('\n')
-    }
-  }
-  let insertAt = close
-  for (let i = 1; i < close; i += 1) {
-    if (/^name:/.test(line(i).replace(/\r$/, ''))) { insertAt = i + 1; break }
-  }
-  lines.splice(insertAt, 0, `${key}: ${yamlScalar(value)}`)
-  return lines.join('\n')
-}
-
-function editSkill(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as { name?: string; scope?: string; workspacePath?: string; description?: string }
-  const address = skillAddress(p.name, p.scope, p.workspacePath)
-  if (!address.ok) return address
-  const md = join(address.targetDir, p.name!.trim(), 'SKILL.md')
-  if (!existsSync(md)) return badRequest('skill operation target has no SKILL.md')
-  const raw = readFileSync(md, 'utf8')
-  writeFileSync(md, setFrontmatterField(raw, 'description', typeof p.description === 'string' ? p.description : ''))
-  return { ok: true, value: { ok: true } }
-}
-
-// ---------------------------------------------------------------------------
-// cron.tasks
-// ---------------------------------------------------------------------------
-
-/** One stored cron task (MVP shape; real model in 04-spec §4.3). */
-interface CronTask {
-  id: string
-  name: string
-  description: string
-  cronExpression: string
-  workspaceId: string
-  modelName: string
-  enabled: boolean
-  createdAt: string
-}
-
-/** One recorded run (manual trigger; real scheduling lands in P4). */
-interface CronRun {
-  id: string
-  taskId: string
-  taskName: string
-  triggeredAt: string
-}
-
-function cronStorePath(): string {
-  return join(dshHome(), 'bc-cron-tasks.json')
-}
-
-function loadCronTasks(): CronTask[] {
-  try {
-    const rows = JSON.parse(readFileSync(cronStorePath(), 'utf8')) as CronTask[]
-    // Pre-`enabled` stores lack the flag; default those rows to enabled.
-    return rows.map(row => ({ ...row, enabled: row.enabled !== false }))
-  } catch {
-    return []
-  }
-}
-
-function saveCronTasks(tasks: CronTask[]): void {
-  mkdirSync(dshHome(), { recursive: true })
-  writeFileSync(cronStorePath(), JSON.stringify(tasks, null, 2) + '\n')
-}
-
-function createCronTask(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as Partial<CronTask>
-  if (typeof p.name !== 'string' || p.name.trim() === '') return badRequest('cron.tasks.create requires name')
-  if (typeof p.cronExpression !== 'string' || p.cronExpression.trim() === '') return badRequest('cron.tasks.create requires cronExpression')
-  if (typeof p.workspaceId !== 'string' || p.workspaceId.trim() === '') return badRequest('cron.tasks.create requires workspaceId')
-  const task: CronTask = {
-    id: `cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: p.name.trim(),
-    description: typeof p.description === 'string' ? p.description : '',
-    cronExpression: p.cronExpression.trim(),
-    workspaceId: p.workspaceId,
-    modelName: typeof p.modelName === 'string' ? p.modelName : '',
-    enabled: typeof p.enabled === 'boolean' ? p.enabled : true,
-    createdAt: new Date().toISOString(),
-  }
-  const tasks = loadCronTasks()
-  tasks.push(task)
-  saveCronTasks(tasks)
-  return { ok: true, value: { ok: true, task } }
-}
-
-function listCronTasks(): { ok: true; value: unknown } {
-  return { ok: true, value: { ok: true, tasks: loadCronTasks() } }
-}
-
-function updateCronTask(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as Partial<CronTask> & { id?: string }
-  if (typeof p.id !== 'string' || p.id.trim() === '') return badRequest('cron.tasks.update requires id')
-  const tasks = loadCronTasks()
-  const index = tasks.findIndex(task => task.id === p.id)
-  if (index < 0) return badRequest('cron.tasks.update unknown task id')
-  const prev = tasks[index]
-  if (prev === undefined) return badRequest('cron.tasks.update unknown task id')
-  const name = typeof p.name === 'string' ? p.name.trim() : prev.name
-  if (name === '') return badRequest('cron.tasks.update requires name')
-  const cronExpression = typeof p.cronExpression === 'string' ? p.cronExpression.trim() : prev.cronExpression
-  if (cronExpression === '') return badRequest('cron.tasks.update requires cronExpression')
-  const workspaceId = typeof p.workspaceId === 'string' ? p.workspaceId : prev.workspaceId
-  if (workspaceId === '') return badRequest('cron.tasks.update requires workspaceId')
-  const updated: CronTask = {
-    ...prev,
-    name,
-    description: typeof p.description === 'string' ? p.description : prev.description,
-    cronExpression,
-    workspaceId,
-    modelName: typeof p.modelName === 'string' ? p.modelName : prev.modelName,
-    enabled: typeof p.enabled === 'boolean' ? p.enabled : prev.enabled,
-  }
-  tasks[index] = updated
-  saveCronTasks(tasks)
-  return { ok: true, value: { ok: true, task: updated } }
-}
-
-function deleteCronTask(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as { id?: string }
-  if (typeof p.id !== 'string' || p.id.trim() === '') return badRequest('cron.tasks.delete requires id')
-  const tasks = loadCronTasks()
-  const next = tasks.filter(task => task.id !== p.id)
-  if (next.length === tasks.length) return badRequest('cron.tasks.delete unknown task id')
-  saveCronTasks(next)
-  return { ok: true, value: { ok: true } }
-}
-
-function cronRunsPath(): string {
-  return join(dshHome(), 'bc-cron-runs.json')
-}
-
-function loadCronRuns(): CronRun[] {
-  try {
-    return JSON.parse(readFileSync(cronRunsPath(), 'utf8')) as CronRun[]
-  } catch {
-    return []
-  }
-}
-
-function saveCronRuns(runs: CronRun[]): void {
-  mkdirSync(dshHome(), { recursive: true })
-  writeFileSync(cronRunsPath(), JSON.stringify(runs, null, 2) + '\n')
-}
-
-function runCronTask(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  const p = payload as { id?: string }
-  if (typeof p.id !== 'string' || p.id.trim() === '') return badRequest('cron.tasks.run requires id')
-  const task = loadCronTasks().find(item => item.id === p.id)
-  if (task === undefined) return badRequest('cron.tasks.run unknown task id')
-  const run: CronRun = {
-    id: `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    taskId: task.id,
-    taskName: task.name,
-    triggeredAt: new Date().toISOString(),
-  }
-  const runs = loadCronRuns()
-  runs.unshift(run)
-  saveCronRuns(runs)
-  return { ok: true, value: { ok: true, run } }
-}
-
-function listCronRuns(): { ok: true; value: unknown } {
-  return { ok: true, value: { ok: true, runs: loadCronRuns() } }
-}
-
-// ---------------------------------------------------------------------------
-// channel
-// ---------------------------------------------------------------------------
 
 /**
- * Dispatch one `/ext` endpoint. Unknown endpoints answer the envelope's
- * business-error branch without leaking anything beyond the endpoint name.
- * @param endpoint - endpoint segment(s) under `/ext/`.
- * @param payload - decoded envelope payload.
- * @returns the RpcResult value.
+ * Build the `/ext` dispatcher for one plugin context (the executor host
+ * services close over `ctx`; the handler itself stays an arrow function, so
+ * `this` is never relied on).
+ * @param ctx - owning plugin context.
+ * @param krm - the opened krm storage service (rules/memories CRUD).
+ * @returns the dispatch handler.
  */
-const handleExt: ConnectionRpcHandler = async (endpoint, payload) => {
-  switch (endpoint) {
-    case 'ext.probe':
-      return { ok: true, value: { ok: true, channel: 'ext', pong: payload } }
-    case 'skills.install':
-      return installSkill(payload) as never
-    case 'skills.list':
-      return listSkills(payload) as never
-    case 'skills.uninstall':
-      return uninstallSkill(payload) as never
-    case 'skills.edit':
-      return editSkill(payload) as never
-    case 'cron.tasks.create':
-      return createCronTask(payload) as never
-    case 'cron.tasks.list':
-      return listCronTasks() as never
-    case 'cron.tasks.update':
-      return updateCronTask(payload) as never
-    case 'cron.tasks.delete':
-      return deleteCronTask(payload) as never
-    case 'cron.tasks.run':
-      return runCronTask(payload) as never
-    case 'cron.runs.list':
-      return listCronRuns() as never
-    default:
-      return badRequest(`unknown /ext endpoint ${JSON.stringify(endpoint)}`) as never
+function createHandler(ctx: Context, krm: KrmService): ConnectionRpcHandler {
+  const host = hostOf(ctx)
+  return async (endpoint, payload) => {
+    switch (endpoint) {
+      case 'ext.probe':
+        return { ok: true, value: { ok: true, channel: 'ext', pong: payload } }
+      // skills
+      case 'skills.install':
+        return installSkill(payload) as never
+      case 'skills.list':
+        return listSkills(payload) as never
+      case 'skills.uninstall':
+        return uninstallSkill(payload) as never
+      case 'skills.edit':
+        return editSkill(payload) as never
+      // skill market (docs/06-skill-standard §6)
+      case 'skills.market.list':
+        return { ok: true, value: readMarketManifest() } as never
+      case 'skills.market.install': {
+        const p = payload as { id?: string; target?: string; workspacePath?: string }
+        if (typeof p.id !== 'string' || p.id.trim() === '') return badRequest('skills.market.install requires id') as never
+        const target = targetDirOf(payload)
+        if (!target.ok) return target as never
+        const entry = readMarketManifest().skills.find(item => item.id === p.id)
+        if (entry === undefined) return badRequest(`skills.market.install unknown market id "${p.id}"`) as never
+        try {
+          const result = await installMarketEntry(entry, target.targetDir)
+          return { ok: true, value: result } as never
+        } catch (error: unknown) {
+          return badRequest(error instanceof Error ? error.message : String(error)) as never
+        }
+      }
+      // cron tasks
+      case 'cron.tasks.create':
+        return createCronTask(payload) as never
+      case 'cron.tasks.list':
+        return listCronTasks() as never
+      case 'cron.tasks.update':
+        return updateCronTask(payload) as never
+      case 'cron.tasks.delete':
+        return deleteCronTask(payload) as never
+      case 'cron.tasks.run': {
+        const result = runCronTaskNow(host, payload)
+        return result as never
+      }
+      case 'cron.runs.list':
+        return listCronRuns() as never
+      // rules + memories (P3a capability-krm)
+      case 'krm.rules.list':
+        return krm.listRules() as never
+      case 'krm.rules.create':
+        return krm.createRule(payload) as never
+      case 'krm.rules.update':
+        return krm.updateRule(payload) as never
+      case 'krm.rules.delete':
+        return krm.deleteRule(payload) as never
+      case 'krm.memories.list':
+        return krm.listMemories() as never
+      case 'krm.memories.create':
+        return krm.createMemory(payload) as never
+      case 'krm.memories.update':
+        return krm.updateMemory(payload) as never
+      case 'krm.memories.delete':
+        return krm.deleteMemory(payload) as never
+      case 'krm.memories.state':
+        return krm.memoriesState() as never
+      case 'krm.memories.setState':
+        return krm.setMemoriesState(payload) as never
+      default:
+        return badRequest(`unknown /ext endpoint ${JSON.stringify(endpoint)}`) as never
+    }
   }
 }
 
 /**
- * Register the `/ext` channel with loopback-only authority (iron rule 6).
+ * Register the `/ext` channel (loopback-only authority, iron rule 6), open the
+ * bc-krm domain and register the rules/memory injection seams, then start the
+ * cron scheduler with the plugin fiber. Async apply: the domain open is
+ * awaited before the channel registers, so a storage failure fails the plugin
+ * load loud (docs/04-spec §6.5) instead of surfacing mid-request.
  * @param ctx - owning plugin context.
  */
-export function apply(ctx: Context): void {
+export async function apply(ctx: Context): Promise<void> {
+  const krm = new KrmService(ctx, { workspaceRegistry: ctx.workspaceRegistry as WorkspaceRegistry })
+  await krm.init()
+
   ctx.effect(
-    () => ctx.connection.rpc.handle(EXT_CHANNEL, handleExt, { authority: 'loopback' }),
+    () => ctx.connection.rpc.handle(EXT_CHANNEL, createHandler(ctx, krm), { authority: 'loopback' }),
     'bc-capability-core: /ext rpc channel',
+  )
+  ctx.effect(
+    () => registerInjection(ctx, krm),
+    'bc-capability-core: rules section + memory index context',
+  )
+  // AI 自动沉淀记忆工具：按记忆总开关动态注册/注销（开关关闭时模型看不到也
+  // 调不到该工具）；监听开关变更即时同步。execute 内另做 fail-closed 复检。
+  let disposeMemoryTool: (() => void) | undefined
+  const syncMemoryTool = (): void => {
+    if (disposeMemoryTool !== undefined) { disposeMemoryTool(); disposeMemoryTool = undefined }
+    if (krm.isMemoriesEnabled()) disposeMemoryTool = ctx.tools.register(createMemoryTool(krm))
+  }
+  krm.onMemoriesEnabledChange(() => { syncMemoryTool() })
+  syncMemoryTool()
+  ctx.effect(
+    () => () => { disposeMemoryTool?.() },
+    'bc-capability-core: memory write tool',
+  )
+  ctx.effect(
+    () => ctx.systemPrompt.section({
+      // 记忆写入引导段：开关关闭时返回空文本（空段不产生内容），与工具可见性一致。
+      name: 'bc:memory-guidance',
+      order: 110,
+      text: () => krm.isMemoriesEnabled() ? MEMORY_SYSTEM_PROMPT : '',
+    }),
+    'bc-capability-core: memory guidance section',
+  )
+  ctx.effect(
+    () => startCronScheduler(
+      // The timer mixin is declared on Context by the vendored cordis timer
+      // plugin (mounted in the dsh base); capability-core avoids a hard type
+      // dependency on that package, so the call surface is spelled out here.
+      ctx as unknown as { interval(callback: () => void, delay: number): () => void },
+      hostOf(ctx),
+      createSchedulerState(),
+    ),
+    'bc-capability-core: cron scheduler',
   )
 }

@@ -1,17 +1,18 @@
 /**
- * The skills page (P2-e + P1-4): two tabs — 市场 (local install entry now;
- * the community market arrives later) and 已安装 (the installed skill roots,
- * global + per-project, enumerated through `skills.list`). The installed tab
- * carries a search box and a project filter dropdown, marks each row's scope
- * (global vs project) and, for project skills, the owning project, and offers
- * edit (description) / uninstall actions. Local install (P1-4) picks a skill
- * directory, chooses a global or project target, and copies it into the
- * corresponding root.
+ * The skills page (P2-e + P1-4 + P4): two tabs — 市场 (the GitHub-backed
+ * catalog from the bundled manifest, docs/06-skill-standard §6) and 已安装
+ * (the installed skill roots, global + per-project, enumerated through
+ * `skills.list`). The installed tab carries a search box and a project filter
+ * dropdown, marks each row's scope (global vs project) and, for project
+ * skills, the owning project, and offers edit (description) / uninstall
+ * actions. Local install (P1-4) picks a skill directory, chooses a global or
+ * project target, and copies it into the corresponding root; market install
+ * (P4) fetches the entry from GitHub through the same target choice.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  UpstreamFace, UpstreamInstalledSkill, UpstreamWorkspaceOptions,
+  UpstreamFace, UpstreamInstalledSkill, UpstreamMarketSkill, UpstreamWorkspaceOptions,
 } from '../adapters/upstream.ts'
 import { BcConfirmModal, BcPageEmpty, BcPageScaffold, type BcPageTab } from './PageScaffold.tsx'
 import { FolderIcon, SearchIcon, SkillsIcon, UploadIcon } from './icons.tsx'
@@ -164,6 +165,91 @@ function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
   )
 }
 
+/** The market-install modal (P4): one entry + global/project target + install. */
+function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onDone }: {
+  skill: UpstreamMarketSkill
+  workspaceOptions: UpstreamWorkspaceOptions
+  upstream: UpstreamFace
+  t: BcTranslate
+  onClose(): void
+  onDone(): void
+}) {
+  const [target, setTarget] = useState<'global' | 'project'>('global')
+  const [workspaceId, setWorkspaceId] = useState<string | undefined>(undefined)
+  const [installing, setInstalling] = useState(false)
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  const install = (): void => {
+    if (target === 'project' && workspaceId === undefined) return
+    const workspace = workspaceOptions.items.find(item => String(item.id) === workspaceId)
+    setInstalling(true)
+    setError(undefined)
+    void upstream.installMarketSkill({
+      id: skill.id,
+      target,
+      ...(target === 'project' && workspace !== undefined ? { workspacePath: workspace.path } : {}),
+    })
+      .then(() => { onDone(); onClose() })
+      .catch((reason: unknown) => {
+        setError(t('skills.marketInstallFailed', { message: reason instanceof Error ? reason.message : String(reason) }))
+      })
+      .finally(() => { setInstalling(false) })
+  }
+
+  return (
+    <div className="bc-web-ui-modal" role="dialog" aria-modal="true" data-bc-market-install-modal>
+      <div className="bc-web-ui-modal-mask" aria-hidden="true" />
+      <div className="bc-web-ui-modal-panel">
+        <header className="bc-web-ui-modal-head">
+          <span className="bc-web-ui-modal-title">{t('skills.marketInstallTitle')} · {skill.name}</span>
+          <button type="button" className="bc-web-ui-modal-close" onClick={onClose} aria-label={t('settings.close')}>✕</button>
+        </header>
+        <div className="bc-web-ui-modal-body">
+          <div className="bc-web-ui-form-field">
+            <label className="bc-web-ui-form-label">{t('skills.uploadTargetLabel')}</label>
+            <div className="bc-web-ui-seg-group">
+              <button
+                type="button"
+                className={target === 'global' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
+                onClick={() => { setTarget('global') }}
+                disabled={installing}
+              >
+                {t('skills.marketTargetGlobal')}
+              </button>
+              <button
+                type="button"
+                className={target === 'project' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
+                onClick={() => { setTarget('project') }}
+                disabled={installing}
+              >
+                {t('skills.marketTargetProject')}
+              </button>
+            </div>
+            {target === 'project' && (
+              <select className="bc-web-ui-form-select" value={workspaceId ?? ''} onChange={(e) => { setWorkspaceId(e.target.value) }} disabled={installing}>
+                <option value="">{t('skills.uploadNoWorkspace')}</option>
+                {workspaceOptions.items.map(item => <option key={String(item.id)} value={String(item.id)}>{item.title}</option>)}
+              </select>
+            )}
+          </div>
+          {error !== undefined && <p className="bc-web-ui-form-error" role="alert">{error}</p>}
+        </div>
+        <footer className="bc-web-ui-modal-foot">
+          <button type="button" className="bc-web-ui-modal-cancel" onClick={onClose}>{t('skills.uploadCancel')}</button>
+          <button
+            type="button"
+            className="bc-web-ui-modal-primary"
+            onClick={install}
+            disabled={installing || (target === 'project' && workspaceId === undefined)}
+          >
+            {installing ? t('skills.marketInstalling') : t('skills.marketInstall')}
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
 /** The edit-skill modal: read-only name + editable description frontmatter field. */
 function EditSkillModal({ skill, upstream, t, onClose, onSaved }: {
   skill: UpstreamInstalledSkill
@@ -238,6 +324,11 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
   const [editTarget, setEditTarget] = useState<UpstreamInstalledSkill | undefined>(undefined)
   const [uninstallTarget, setUninstallTarget] = useState<UpstreamInstalledSkill | undefined>(undefined)
   const [busyName, setBusyName] = useState<string | undefined>(undefined)
+  // Market state (P4): the bundled catalog + the entry being installed.
+  const [market, setMarket] = useState<readonly UpstreamMarketSkill[]>([])
+  const [marketLoading, setMarketLoading] = useState(false)
+  const [marketError, setMarketError] = useState(false)
+  const [marketInstallTarget, setMarketInstallTarget] = useState<UpstreamMarketSkill | undefined>(undefined)
 
   useEffect(() => {
     let current = true
@@ -249,6 +340,28 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
     ).finally(() => { if (current) setLoading(false) })
     return () => { current = false }
   }, [upstream, workspaceOptions.loading, reloadKey])
+
+  useEffect(() => {
+    let current = true
+    setMarketLoading(true)
+    setMarketError(false)
+    upstream.listMarketSkills().then(
+      (rows) => { if (current) setMarket(rows) },
+      () => { if (current) setMarketError(true) },
+    ).finally(() => { if (current) setMarketLoading(false) })
+    return () => { current = false }
+  }, [upstream, reloadKey])
+
+  // Market entries already present in an install root (matched by id — the
+  // manifest pins id == directory name, and our catalog's id == skill name).
+  const installedIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const skill of skills) {
+      ids.add(skill.name)
+      if (skill.installedPath !== undefined) ids.add(skill.installedPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '')
+    }
+    return ids
+  }, [skills])
 
   const projectTitle = (skill: UpstreamInstalledSkill): string | undefined =>
     skill.workspacePath !== undefined
@@ -311,6 +424,52 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
     )
   })()
 
+  const marketBody: ReactNode = (() => {
+    if (marketLoading) return <p className="bc-web-ui-page-loading">{t('skills.marketLoading')}</p>
+    if (marketError) return <BcPageEmpty icon={<SkillsIcon size={24} />} title={t('skills.marketErrorTitle')} hint={t('skills.marketErrorHint')} />
+    if (market.length === 0) return <BcPageEmpty icon={<SkillsIcon size={24} />} title={t('skills.installedEmptyTitle')} hint={t('skills.marketErrorHint')} />
+    return (
+      <div className="bc-web-ui-page-list">
+        {market.map(skill => {
+          const installed = installedIds.has(skill.id)
+          return (
+            <div className="bc-web-ui-skill-row" key={skill.id} data-bc-market-row={skill.id}>
+              <div className="bc-web-ui-skill-row-main">
+                <span className="bc-web-ui-skill-icon" aria-hidden="true">{skill.name.charAt(0)}</span>
+                <div className="bc-web-ui-skill-row-body">
+                  <div className="bc-web-ui-skill-row-head">
+                    <span className="bc-web-ui-skill-name">{skill.name}</span>
+                    {installed && <span className="bc-web-ui-skill-badge">{t('skills.marketInstalled')}</span>}
+                    {skill.tags !== undefined && skill.tags.length > 0 && (
+                      <span className="bc-web-ui-skill-badge">{skill.tags.join(' · ')}</span>
+                    )}
+                  </div>
+                  <p className="bc-web-ui-skill-desc">{skill.description}</p>
+                  <div className="bc-web-ui-skill-meta">
+                    {skill.license !== undefined && (
+                      <span className="bc-web-ui-skill-project">{t('skills.marketLicense', { license: skill.license })}</span>
+                    )}
+                    <span className="bc-web-ui-skill-project">{t('skills.marketSource', { repo: skill.source.repo })}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="bc-web-ui-row-actions">
+                <button
+                  type="button"
+                  className="bc-web-ui-row-action"
+                  onClick={() => { setMarketInstallTarget(skill) }}
+                  disabled={installed}
+                >
+                  {t('skills.marketInstall')}
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
+  })()
+
   return (
     <BcPageScaffold
       pageKey="skills"
@@ -327,7 +486,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
       )}
     >
       {activeTab === 'market'
-        ? <BcPageEmpty icon={<SkillsIcon size={24} />} title={t('skills.marketEmptyTitle')} hint={t('skills.marketEmptyHint')} />
+        ? marketBody
         : (
           <>
             <div className="bc-web-ui-page-toolbar">
@@ -359,6 +518,16 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
         )}
       {uploadOpen && (
         <UploadModal workspaceOptions={workspaceOptions} upstream={upstream} t={t} onClose={() => { setUploadOpen(false) }} onDone={() => { setActiveTab('installed'); setReloadKey(k => k + 1) }} />
+      )}
+      {marketInstallTarget !== undefined && (
+        <MarketInstallModal
+          skill={marketInstallTarget}
+          workspaceOptions={workspaceOptions}
+          upstream={upstream}
+          t={t}
+          onClose={() => { setMarketInstallTarget(undefined) }}
+          onDone={() => { setReloadKey(k => k + 1) }}
+        />
       )}
       {editTarget !== undefined && (
         <EditSkillModal

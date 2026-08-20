@@ -133,25 +133,29 @@ function formatTriggerTime(iso: string): string {
 function initialTaskForm(task: UpstreamCronTask | undefined): {
   name: string
   description: string
+  prompt: string
   frequency: CronFrequency
   time: string
   weekdays: WeekdayKey[]
   monthDay: number
   intervalHours: number
   workspaceId: string
-  modelName: string
+  modelProvider: string
+  model: string
 } {
   const parsed = task !== undefined ? parseCronExpression(task.cronExpression) : undefined
   return {
     name: task?.name ?? '',
     description: task?.description ?? '',
+    prompt: task?.prompt ?? '',
     frequency: parsed?.frequency ?? 'daily',
     time: parsed?.time ?? '09:00',
     weekdays: parsed?.weekdays ?? [],
     monthDay: parsed?.monthDay ?? 1,
     intervalHours: parsed?.intervalHours ?? 6,
     workspaceId: task?.workspaceId ?? '',
-    modelName: task?.modelName ?? '',
+    modelProvider: task?.modelProvider ?? '',
+    model: task?.model ?? '',
   }
 }
 
@@ -167,13 +171,16 @@ function TaskModal({ workspaceOptions, upstream, t, editing, onClose, onSaved }:
   const initial = initialTaskForm(editing)
   const [name, setName] = useState(initial.name)
   const [description, setDescription] = useState(initial.description)
+  const [prompt, setPrompt] = useState(initial.prompt)
   const [frequency, setFrequency] = useState<CronFrequency>(initial.frequency)
   const [time, setTime] = useState(initial.time)
   const [weekdays, setWeekdays] = useState<WeekdayKey[]>(initial.weekdays)
   const [monthDay, setMonthDay] = useState(initial.monthDay)
   const [intervalHours, setIntervalHours] = useState(initial.intervalHours)
   const [workspaceId, setWorkspaceId] = useState(initial.workspaceId)
-  const [modelName, setModelName] = useState(initial.modelName)
+  const [modelKey, setModelKey] = useState(
+    initial.modelProvider !== '' && initial.model !== '' ? `${initial.modelProvider}/${initial.model}` : '',
+  )
   const [models, setModels] = useState<readonly UpstreamModelOption[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -192,18 +199,21 @@ function TaskModal({ workspaceOptions, upstream, t, editing, onClose, onSaved }:
   }
 
   const cronExpression = buildCronExpression(frequency, time, weekdays, monthDay, intervalHours)
-  const canSubmit = name.trim() !== '' && cronExpression !== undefined && workspaceId !== '' && !submitting
+  const hasInstruction = name.trim() !== '' && (prompt.trim() !== '' || description.trim() !== '')
+  const canSubmit = hasInstruction && cronExpression !== undefined && workspaceId !== '' && !submitting
 
   const submit = (): void => {
     if (cronExpression === undefined || !canSubmit) return
     setSubmitting(true)
     setError(undefined)
+    const [modelProvider, model] = modelKey.split('/')
     const payload = {
       name: name.trim(),
       description: description.trim(),
+      prompt: prompt.trim(),
       cronExpression,
       workspaceId,
-      ...(modelName.trim() !== '' ? { modelName: modelName.trim() } : {}),
+      ...(modelProvider !== undefined && model !== undefined ? { modelProvider, model } : {}),
     }
     const action = editing !== undefined
       ? upstream.updateCronTask({ id: editing.id, ...payload })
@@ -299,8 +309,12 @@ function TaskModal({ workspaceOptions, upstream, t, editing, onClose, onSaved }:
             </div>
           )}
           <div className="bc-web-ui-form-field">
+            <label className="bc-web-ui-form-label">{t('cron.prompt')}</label>
+            <textarea className="bc-web-ui-form-textarea" rows={3} value={prompt} onChange={(e) => { setPrompt(e.target.value) }} disabled={submitting} placeholder={t('cron.promptHint')} />
+          </div>
+          <div className="bc-web-ui-form-field">
             <label className="bc-web-ui-form-label">{t('cron.taskDescription')}</label>
-            <textarea className="bc-web-ui-form-textarea" rows={3} value={description} onChange={(e) => { setDescription(e.target.value) }} disabled={submitting} />
+            <textarea className="bc-web-ui-form-textarea" rows={2} value={description} onChange={(e) => { setDescription(e.target.value) }} disabled={submitting} />
           </div>
           <div className="bc-web-ui-form-grid">
             <div className="bc-web-ui-form-field">
@@ -312,9 +326,9 @@ function TaskModal({ workspaceOptions, upstream, t, editing, onClose, onSaved }:
             </div>
             <div className="bc-web-ui-form-field">
               <label className="bc-web-ui-form-label">{t('cron.model')}</label>
-              <select className="bc-web-ui-form-select" value={modelName} onChange={(e) => { setModelName(e.target.value) }} disabled={submitting}>
+              <select className="bc-web-ui-form-select" value={modelKey} onChange={(e) => { setModelKey(e.target.value) }} disabled={submitting}>
                 <option value="">{t('cron.modelDefault')}</option>
-                {models.map(model => <option key={`${model.provider}/${model.model}`} value={model.name}>{model.name}</option>)}
+                {models.map(model => <option key={`${model.provider}/${model.model}`} value={`${model.provider}/${model.model}`}>{model.name}</option>)}
               </select>
             </div>
           </div>
@@ -345,8 +359,9 @@ function TaskRow({ task, workspaceTitle, t, busy, onToggle, onRun, onEdit, onDel
   onDelete(): void
 }) {
   const metaParts = [describeCron(task.cronExpression, t)]
-  if (task.modelName !== '') metaParts.push(task.modelName)
+  if (task.modelProvider !== '' && task.model !== '') metaParts.push(task.model)
   if (workspaceTitle !== undefined) metaParts.push(workspaceTitle)
+  if (task.enabled && task.nextRunAt !== undefined) metaParts.push(t('cron.nextRun', { time: formatTriggerTime(task.nextRunAt) }))
   return (
     <div className="bc-web-ui-cron-row" data-bc-cron-row={task.id}>
       <button
@@ -410,6 +425,19 @@ export function BcCronPage({ upstream, workspaceOptions, t }: BcCronPageProps) {
     ).finally(() => { if (current) setRunsLoading(false) })
     return () => { current = false }
   }, [upstream])
+
+  // Live refresh while the history tab is open: runs transition
+  // queued → running → success/failed in the background (P4 execution).
+  useEffect(() => {
+    if (activeTab !== 'history') return
+    const timer = window.setInterval(() => {
+      void upstream.listCronRuns().then(
+        (rows) => { setRuns(rows) },
+        () => {},
+      )
+    }, 4000)
+    return () => { window.clearInterval(timer) }
+  }, [activeTab, upstream])
 
   const workspaceTitle = (task: UpstreamCronTask): string | undefined =>
     workspaceOptions.items.find(item => String(item.id) === task.workspaceId)?.title
@@ -476,10 +504,16 @@ export function BcCronPage({ upstream, workspaceOptions, t }: BcCronPageProps) {
                     {runs.map(run => (
                       <div className="bc-web-ui-cron-row" key={run.id} data-bc-cron-run={run.id}>
                         <div className="bc-web-ui-cron-row-main">
-                          <span className="bc-web-ui-cron-name">{run.taskName}</span>
-                          <div className="bc-web-ui-cron-meta">
-                            <span className="bc-web-ui-cron-schedule">{t('cron.historyManual')} · {formatTriggerTime(run.triggeredAt)}</span>
+                          <div className="bc-web-ui-cron-row-head">
+                            <span className="bc-web-ui-cron-name">{run.taskName}</span>
+                            <span className="bc-web-ui-skill-badge" data-bc-run-status={run.status}>{t(`cron.runStatus.${run.status}`)}</span>
                           </div>
+                          <div className="bc-web-ui-cron-meta">
+                            <span className="bc-web-ui-cron-schedule">
+                              {run.kind === 'scheduled' ? t('cron.historyScheduled') : t('cron.historyManual')} · {formatTriggerTime(run.triggeredAt)}
+                            </span>
+                          </div>
+                          {run.error !== undefined && <p className="bc-web-ui-cron-desc">{run.error}</p>}
                         </div>
                       </div>
                     ))}
