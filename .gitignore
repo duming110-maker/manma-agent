@@ -36,3 +36,4 @@ apps/desktop/.data/
 
 # ---- logs ----
 *.log
+/.vs
