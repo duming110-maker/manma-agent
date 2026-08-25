@@ -103,6 +103,12 @@ export const zh = {
   'skills.uploadInstalling': '安装中…',
   'skills.uploadCancel': '取消',
   'skills.uploadFailed': '安装失败，请重试',
+  'skills.uploadProjectMultiHint': '可多选项目，技能将分别安装到所选项目',
+  'skills.globalSkillsMaster': '启用全局技能',
+  'skills.globalSkillsMasterHint': '关闭后，全局技能将从列表隐藏，且无法安装到全局',
+  'skills.globalDisabledHint': '全局技能已关闭，如需安装到全局请先开启「启用全局技能」',
+  'skills.toggleFailed': '更新失败，请重试',
+  'skills.editLocationLabel': '安装位置',
 
   // Skill market (GitHub-backed catalog).
   'skills.marketLoading': '技能市场加载中…',
@@ -351,6 +357,12 @@ export const en = {
   'skills.uploadInstalling': 'Installing…',
   'skills.uploadCancel': 'Cancel',
   'skills.uploadFailed': 'Install failed, please retry',
+  'skills.uploadProjectMultiHint': 'Multi-select; the skill is installed into each selected project',
+  'skills.globalSkillsMaster': 'Enable global skills',
+  'skills.globalSkillsMasterHint': 'When off, global skills are hidden and cannot be installed globally',
+  'skills.globalDisabledHint': 'Global skills are off; enable "Global skills" first to install globally',
+  'skills.toggleFailed': 'Update failed, please retry',
+  'skills.editLocationLabel': 'Install location',
 
   // Skill market (GitHub-backed catalog).
   'skills.marketLoading': 'Loading skill market…',

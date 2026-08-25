@@ -19,10 +19,49 @@ import { FolderIcon, SearchIcon, SkillsIcon, UploadIcon } from './icons.tsx'
 
 type BcTranslate = TranslateNS<'bc'>
 
-/** One installed skill row (icon + name + badges + scope/project marker + edit/uninstall). */
-function SkillRow({ skill, projectTitle, t, busy, onEdit, onUninstall }: {
-  skill: UpstreamInstalledSkill
-  projectTitle: string | undefined
+/** One install location (scope + workspace path + on-disk path). */
+interface SkillLocation {
+  scope: 'global' | 'project'
+  workspacePath: string | undefined
+  installedPath: string
+}
+
+/** A skill grouped by name across all install roots — one row in the list. */
+interface GroupedSkill {
+  name: string
+  description: string
+  whenToUse: string | undefined
+  modelInvocable: boolean
+  locations: SkillLocation[]
+}
+
+/** Group flat installed-skill rows by name into one entry per skill. */
+function groupSkills(rows: readonly UpstreamInstalledSkill[]): GroupedSkill[] {
+  const map = new Map<string, GroupedSkill>()
+  for (const row of rows) {
+    const existing = map.get(row.name)
+    const loc: SkillLocation = { scope: row.scope, workspacePath: row.workspacePath, installedPath: row.installedPath }
+    if (existing !== undefined) {
+      existing.locations.push(loc)
+    } else {
+      map.set(row.name, {
+        name: row.name,
+        description: row.description,
+        whenToUse: row.whenToUse,
+        modelInvocable: row.modelInvocable,
+        locations: [loc],
+      })
+    }
+  }
+  const result = Array.from(map.values())
+  result.sort((a, b) => a.name.localeCompare(b.name))
+  return result
+}
+
+/** One installed skill row (icon + name + badges + scope/project markers + edit/uninstall). */
+function SkillRow({ skill, locationLabels, t, busy, onEdit, onUninstall }: {
+  skill: GroupedSkill
+  locationLabels: string[]
   t: BcTranslate
   busy: boolean
   onEdit(): void
@@ -37,14 +76,11 @@ function SkillRow({ skill, projectTitle, t, busy, onEdit, onUninstall }: {
           <div className="bc-web-ui-skill-row-head">
             <span className="bc-web-ui-skill-name">{skill.name}</span>
             {skill.modelInvocable || <span className="bc-web-ui-skill-badge">{t('skills.userOnlyBadge')}</span>}
-            <span className="bc-web-ui-skill-badge">{skill.scope === 'global' ? t('skills.scopeGlobalBadge') : t('skills.scopeProjectBadge')}</span>
+            {locationLabels.map(label => (
+              <span key={label} className="bc-web-ui-skill-badge">{label}</span>
+            ))}
           </div>
           <p className="bc-web-ui-skill-desc">{skill.description}</p>
-          <div className="bc-web-ui-skill-meta">
-            {skill.scope === 'project' && projectTitle !== undefined && (
-              <span className="bc-web-ui-skill-project">{t('skills.usedByProject', { project: projectTitle })}</span>
-            )}
-          </div>
         </div>
       </div>
       <div className="bc-web-ui-row-actions">
@@ -55,17 +91,20 @@ function SkillRow({ skill, projectTitle, t, busy, onEdit, onUninstall }: {
   )
 }
 
-/** The local-install modal (P1-4): source dir + global/project target + install. */
-function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
+/** The local-install modal (P1-4): source dir + global/project target(s) + install.
+ * When the target is "project", multiple projects may be selected — the skill is
+ * installed into each selected project's root (multi-select install). */
+function UploadModal({ workspaceOptions, upstream, t, globalEnabled, onClose, onDone }: {
   workspaceOptions: UpstreamWorkspaceOptions
   upstream: UpstreamFace
   t: BcTranslate
+  globalEnabled: boolean
   onClose(): void
   onDone(): void
 }) {
   const [sourcePath, setSourcePath] = useState<string | undefined>(undefined)
-  const [target, setTarget] = useState<'global' | 'project'>('global')
-  const [workspaceId, setWorkspaceId] = useState<string | undefined>(undefined)
+  const [target, setTarget] = useState<'global' | 'project'>(globalEnabled ? 'global' : 'project')
+  const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>([])
   const [picking, setPicking] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -77,16 +116,24 @@ function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
       .finally(() => { setPicking(false) })
   }
 
+  const toggleWorkspace = (id: string): void => {
+    setWorkspaceIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+  }
+
   const install = (): void => {
-    if (sourcePath === undefined || (target === 'project' && workspaceId === undefined)) return
-    const workspace = workspaceOptions.items.find(item => String(item.id) === workspaceId)
+    if (sourcePath === undefined || (target === 'project' && workspaceIds.length === 0)) return
+    const jobs: Promise<unknown>[] = []
+    if (target === 'global') {
+      jobs.push(upstream.installSkill({ sourcePath, target: 'global' }))
+    } else {
+      for (const id of workspaceIds) {
+        const workspace = workspaceOptions.items.find(item => String(item.id) === id)
+        if (workspace !== undefined) jobs.push(upstream.installSkill({ sourcePath, target: 'project', workspacePath: workspace.path }))
+      }
+    }
     setInstalling(true)
     setError(undefined)
-    void upstream.installSkill({
-      sourcePath,
-      target,
-      ...(target === 'project' && workspace !== undefined ? { workspacePath: workspace.path } : {}),
-    })
+    void Promise.all(jobs)
       .then(() => { onDone(); onClose() })
       .catch(() => { setError(t('skills.uploadFailed')) })
       .finally(() => { setInstalling(false) })
@@ -132,7 +179,7 @@ function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
                 type="button"
                 className={target === 'global' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
                 onClick={() => { setTarget('global') }}
-                disabled={installing}
+                disabled={installing || !globalEnabled}
               >
                 {t('skills.uploadTargetGlobal')}
               </button>
@@ -145,18 +192,30 @@ function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
                 {t('skills.uploadTargetProject')}
               </button>
             </div>
+            {!globalEnabled && <p className="bc-web-ui-form-hint">{t('skills.globalDisabledHint')}</p>}
             {target === 'project' && (
-              <select className="bc-web-ui-form-select" value={workspaceId ?? ''} onChange={(e) => { setWorkspaceId(e.target.value) }} disabled={installing}>
-                <option value="">{t('skills.uploadNoWorkspace')}</option>
-                {workspaceOptions.items.map(item => <option key={String(item.id)} value={String(item.id)}>{item.title}</option>)}
-              </select>
+              <>
+                <div className="bc-web-ui-upload-workspaces">
+                  {workspaceOptions.items.map(item => {
+                    const id = String(item.id)
+                    const checked = workspaceIds.includes(id)
+                    return (
+                      <label key={id} className="bc-web-ui-upload-workspace">
+                        <input type="checkbox" checked={checked} onChange={() => { toggleWorkspace(id) }} disabled={installing} />
+                        <span>{item.title}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <span className="bc-web-ui-form-hint">{t('skills.uploadProjectMultiHint')}</span>
+              </>
             )}
           </div>
           {error !== undefined && <p className="bc-web-ui-form-error" role="alert">{error}</p>}
         </div>
         <footer className="bc-web-ui-modal-foot">
           <button type="button" className="bc-web-ui-modal-cancel" onClick={onClose}>{t('skills.uploadCancel')}</button>
-          <button type="button" className="bc-web-ui-modal-primary" onClick={install} disabled={sourcePath === undefined || installing || (target === 'project' && workspaceId === undefined)}>
+          <button type="button" className="bc-web-ui-modal-primary" onClick={install} disabled={sourcePath === undefined || installing || (target === 'project' && workspaceIds.length === 0)}>
             {installing ? t('skills.uploadInstalling') : t('skills.uploadInstall')}
           </button>
         </footer>
@@ -166,29 +225,38 @@ function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
 }
 
 /** The market-install modal (P4): one entry + global/project target + install. */
-function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onDone }: {
+function MarketInstallModal({ skill, workspaceOptions, upstream, t, globalEnabled, onClose, onDone }: {
   skill: UpstreamMarketSkill
   workspaceOptions: UpstreamWorkspaceOptions
   upstream: UpstreamFace
   t: BcTranslate
+  globalEnabled: boolean
   onClose(): void
   onDone(): void
 }) {
-  const [target, setTarget] = useState<'global' | 'project'>('global')
-  const [workspaceId, setWorkspaceId] = useState<string | undefined>(undefined)
+  const [target, setTarget] = useState<'global' | 'project'>(globalEnabled ? 'global' : 'project')
+  const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>([])
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
 
+  const toggleWorkspace = (id: string): void => {
+    setWorkspaceIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+  }
+
   const install = (): void => {
-    if (target === 'project' && workspaceId === undefined) return
-    const workspace = workspaceOptions.items.find(item => String(item.id) === workspaceId)
+    if (target === 'project' && workspaceIds.length === 0) return
+    const jobs: Promise<unknown>[] = []
+    if (target === 'global') {
+      jobs.push(upstream.installMarketSkill({ id: skill.id, target: 'global' }))
+    } else {
+      for (const id of workspaceIds) {
+        const workspace = workspaceOptions.items.find(item => String(item.id) === id)
+        if (workspace !== undefined) jobs.push(upstream.installMarketSkill({ id: skill.id, target: 'project', workspacePath: workspace.path }))
+      }
+    }
     setInstalling(true)
     setError(undefined)
-    void upstream.installMarketSkill({
-      id: skill.id,
-      target,
-      ...(target === 'project' && workspace !== undefined ? { workspacePath: workspace.path } : {}),
-    })
+    void Promise.all(jobs)
       .then(() => { onDone(); onClose() })
       .catch((reason: unknown) => {
         setError(t('skills.marketInstallFailed', { message: reason instanceof Error ? reason.message : String(reason) }))
@@ -212,7 +280,7 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onD
                 type="button"
                 className={target === 'global' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
                 onClick={() => { setTarget('global') }}
-                disabled={installing}
+                disabled={installing || !globalEnabled}
               >
                 {t('skills.marketTargetGlobal')}
               </button>
@@ -225,11 +293,23 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onD
                 {t('skills.marketTargetProject')}
               </button>
             </div>
+            {!globalEnabled && <p className="bc-web-ui-form-hint">{t('skills.globalDisabledHint')}</p>}
             {target === 'project' && (
-              <select className="bc-web-ui-form-select" value={workspaceId ?? ''} onChange={(e) => { setWorkspaceId(e.target.value) }} disabled={installing}>
-                <option value="">{t('skills.uploadNoWorkspace')}</option>
-                {workspaceOptions.items.map(item => <option key={String(item.id)} value={String(item.id)}>{item.title}</option>)}
-              </select>
+              <>
+                <div className="bc-web-ui-upload-workspaces">
+                  {workspaceOptions.items.map(item => {
+                    const id = String(item.id)
+                    const checked = workspaceIds.includes(id)
+                    return (
+                      <label key={id} className="bc-web-ui-upload-workspace">
+                        <input type="checkbox" checked={checked} onChange={() => { toggleWorkspace(id) }} disabled={installing} />
+                        <span>{item.title}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <span className="bc-web-ui-form-hint">{t('skills.uploadProjectMultiHint')}</span>
+              </>
             )}
           </div>
           {error !== undefined && <p className="bc-web-ui-form-error" role="alert">{error}</p>}
@@ -240,7 +320,7 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onD
             type="button"
             className="bc-web-ui-modal-primary"
             onClick={install}
-            disabled={installing || (target === 'project' && workspaceId === undefined)}
+            disabled={installing || (target === 'project' && workspaceIds.length === 0)}
           >
             {installing ? t('skills.marketInstalling') : t('skills.marketInstall')}
           </button>
@@ -250,27 +330,85 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onD
   )
 }
 
-/** The edit-skill modal: read-only name + editable description frontmatter field. */
-function EditSkillModal({ skill, upstream, t, onClose, onSaved }: {
-  skill: UpstreamInstalledSkill
+/** The edit-skill modal: read-only name + editable description frontmatter field
+ * + editable install locations (global checkbox + project multi-select). The
+ * save flow copies the skill to newly-added locations (via `skills.copy`),
+ * rewrites the description on every target, and uninstalls any original
+ * location that is no longer selected. */
+function EditSkillModal({ skill, workspaceOptions, upstream, t, globalEnabled, onClose, onSaved }: {
+  skill: GroupedSkill
+  workspaceOptions: UpstreamWorkspaceOptions
   upstream: UpstreamFace
   t: BcTranslate
+  globalEnabled: boolean
   onClose(): void
   onSaved(): void
 }) {
   const [description, setDescription] = useState(skill.description)
+  const [globalSelected, setGlobalSelected] = useState(() => skill.locations.some(loc => loc.scope === 'global'))
+  const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>(() => {
+    const ids: string[] = []
+    for (const loc of skill.locations) {
+      if (loc.scope === 'project' && loc.workspacePath !== undefined) {
+        const match = workspaceOptions.items.find(item => item.path === loc.workspacePath)
+        if (match !== undefined) ids.push(String(match.id))
+      }
+    }
+    return ids
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
 
+  const canSubmit = globalSelected || workspaceIds.length > 0
+
+  const toggleWorkspace = (id: string): void => {
+    setWorkspaceIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+  }
+
   const save = (): void => {
+    if (!canSubmit) return
+    type Pos = { scope: 'global' | 'project'; workspacePath?: string }
+    const targets: Pos[] = []
+    if (globalSelected) targets.push({ scope: 'global' })
+    for (const id of workspaceIds) {
+      const ws = workspaceOptions.items.find(item => String(item.id) === id)
+      if (ws !== undefined) targets.push({ scope: 'project', workspacePath: ws.path })
+    }
+    const posKey = (scope: 'global' | 'project', workspacePath: string | undefined): string =>
+      scope === 'global' ? 'global' : `project:${workspacePath}`
+    const targetKeys = new Set(targets.map(t => posKey(t.scope, t.workspacePath)))
+    const isOrigin = (t: Pos): boolean =>
+      skill.locations.some(loc => posKey(loc.scope, loc.workspacePath) === posKey(t.scope, t.workspacePath))
+    // Pick any original location as the copy source.
+    const sourceLoc = skill.locations[0]
+    if (sourceLoc === undefined) return
+    const name = skill.name
+    const desc = description.trim()
     setSubmitting(true)
     setError(undefined)
-    void upstream.editSkill({
-      name: skill.name,
-      scope: skill.scope,
-      ...(skill.workspacePath !== undefined ? { workspacePath: skill.workspacePath } : {}),
-      description: description.trim(),
-    })
+    void (async () => {
+      // 1) copy to every newly-selected target (skip ones already present).
+      for (const t of targets) {
+        if (isOrigin(t)) continue
+        await upstream.copySkill({
+          name,
+          fromScope: sourceLoc.scope,
+          ...(sourceLoc.workspacePath !== undefined ? { fromWorkspacePath: sourceLoc.workspacePath } : {}),
+          toScope: t.scope,
+          ...(t.workspacePath !== undefined ? { toWorkspacePath: t.workspacePath } : {}),
+        })
+      }
+      // 2) apply the description on every target.
+      for (const t of targets) {
+        await upstream.editSkill({ name, scope: t.scope, ...(t.workspacePath !== undefined ? { workspacePath: t.workspacePath } : {}), description: desc })
+      }
+      // 3) uninstall any original location no longer selected.
+      for (const loc of skill.locations) {
+        if (!targetKeys.has(posKey(loc.scope, loc.workspacePath))) {
+          await upstream.uninstallSkill({ name, scope: loc.scope, ...(loc.workspacePath !== undefined ? { workspacePath: loc.workspacePath } : {}) })
+        }
+      }
+    })()
       .then(() => { onSaved(); onClose() })
       .catch(() => { setError(t('skills.editFailed')) })
       .finally(() => { setSubmitting(false) })
@@ -293,11 +431,37 @@ function EditSkillModal({ skill, upstream, t, onClose, onSaved }: {
             <label className="bc-web-ui-form-label">{t('skills.editDescriptionLabel')}</label>
             <textarea className="bc-web-ui-form-textarea" rows={4} value={description} onChange={(e) => { setDescription(e.target.value) }} disabled={submitting} />
           </div>
+          <div className="bc-web-ui-form-field">
+            <label className="bc-web-ui-form-label">{t('skills.editLocationLabel')}</label>
+            <label className="bc-web-ui-upload-workspace">
+              <input
+                type="checkbox"
+                checked={globalSelected}
+                onChange={() => { setGlobalSelected(prev => !prev) }}
+                disabled={submitting || !globalEnabled}
+              />
+              <span>{t('skills.uploadTargetGlobal')}</span>
+            </label>
+            {!globalEnabled && <p className="bc-web-ui-form-hint">{t('skills.globalDisabledHint')}</p>}
+            <div className="bc-web-ui-upload-workspaces">
+              {workspaceOptions.items.map(item => {
+                const id = String(item.id)
+                const checked = workspaceIds.includes(id)
+                return (
+                  <label key={id} className="bc-web-ui-upload-workspace">
+                    <input type="checkbox" checked={checked} onChange={() => { toggleWorkspace(id) }} disabled={submitting} />
+                    <span>{item.title}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <span className="bc-web-ui-form-hint">{t('skills.uploadProjectMultiHint')}</span>
+          </div>
           {error !== undefined && <p className="bc-web-ui-form-error" role="alert">{error}</p>}
         </div>
         <footer className="bc-web-ui-modal-foot">
           <button type="button" className="bc-web-ui-modal-cancel" onClick={onClose}>{t('skills.uploadCancel')}</button>
-          <button type="button" className="bc-web-ui-modal-primary" onClick={save} disabled={submitting}>
+          <button type="button" className="bc-web-ui-modal-primary" onClick={save} disabled={submitting || !canSubmit}>
             {submitting ? t('skills.editSaving') : t('skills.editSave')}
           </button>
         </footer>
@@ -321,14 +485,26 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
   const [reloadKey, setReloadKey] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [projectFilter, setProjectFilter] = useState('')
-  const [editTarget, setEditTarget] = useState<UpstreamInstalledSkill | undefined>(undefined)
-  const [uninstallTarget, setUninstallTarget] = useState<UpstreamInstalledSkill | undefined>(undefined)
+  const [editTarget, setEditTarget] = useState<GroupedSkill | undefined>(undefined)
+  const [uninstallTarget, setUninstallTarget] = useState<GroupedSkill | undefined>(undefined)
   const [busyName, setBusyName] = useState<string | undefined>(undefined)
   // Market state (P4): the bundled catalog + the entry being installed.
   const [market, setMarket] = useState<readonly UpstreamMarketSkill[]>([])
   const [marketLoading, setMarketLoading] = useState(false)
   const [marketError, setMarketError] = useState(false)
   const [marketInstallTarget, setMarketInstallTarget] = useState<UpstreamMarketSkill | undefined>(undefined)
+  // 全局技能开关状态（docs/04-spec：默认关闭）。关闭时全局技能从列表隐藏、禁止安装到全局。
+  const [globalEnabled, setGlobalEnabled] = useState(false)
+  const [notice, setNotice] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    let current = true
+    upstream.getGlobalSkillsState().then(
+      (enabled) => { if (current) setGlobalEnabled(enabled) },
+      () => {},
+    )
+    return () => { current = false }
+  }, [upstream])
 
   useEffect(() => {
     let current = true
@@ -339,7 +515,11 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
       () => { if (current) setLoadError(true) },
     ).finally(() => { if (current) setLoading(false) })
     return () => { current = false }
-  }, [upstream, workspaceOptions.loading, reloadKey])
+  }, [upstream, workspaceOptions.loading, reloadKey, globalEnabled])
+
+  // Group flat rows by skill name: one row per unique skill (multiple install
+  // locations merged into a single list entry).
+  const grouped = useMemo(() => groupSkills(skills), [skills])
 
   useEffect(() => {
     let current = true
@@ -356,22 +536,31 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
   // manifest pins id == directory name, and our catalog's id == skill name).
   const installedIds = useMemo(() => {
     const ids = new Set<string>()
-    for (const skill of skills) {
+    for (const skill of grouped) {
       ids.add(skill.name)
-      if (skill.installedPath !== undefined) ids.add(skill.installedPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '')
+      for (const loc of skill.locations) {
+        if (loc.installedPath !== undefined) ids.add(loc.installedPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '')
+      }
     }
     return ids
-  }, [skills])
+  }, [grouped])
 
-  const projectTitle = (skill: UpstreamInstalledSkill): string | undefined =>
-    skill.workspacePath !== undefined
-      ? workspaceOptions.items.find(item => item.path === skill.workspacePath)?.title
-      : undefined
+  const locationLabelsFor = (skill: GroupedSkill): string[] => {
+    const labels: string[] = []
+    if (skill.locations.some(loc => loc.scope === 'global')) labels.push(t('skills.scopeGlobalBadge'))
+    for (const loc of skill.locations) {
+      if (loc.scope === 'project' && loc.workspacePath !== undefined) {
+        const title = workspaceOptions.items.find(item => item.path === loc.workspacePath)?.title
+        if (title !== undefined) labels.push(title)
+      }
+    }
+    return labels
+  }
 
   const filtered = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
-    return skills.filter(skill => {
-      if (projectFilter !== '' && skill.scope === 'project' && skill.workspacePath !== projectFilter) return false
+    return grouped.filter(skill => {
+      if (projectFilter !== '' && !skill.locations.some(loc => loc.scope === 'project' && loc.workspacePath === projectFilter)) return false
       if (query !== '') {
         const inName = skill.name.toLowerCase().includes(query)
         const inDesc = skill.description.toLowerCase().includes(query)
@@ -379,18 +568,35 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
       }
       return true
     })
-  }, [skills, searchQuery, projectFilter])
+  }, [grouped, searchQuery, projectFilter])
 
   const confirmUninstall = (): void => {
     if (uninstallTarget === undefined) return
-    setBusyName(uninstallTarget.name)
-    void upstream.uninstallSkill({
-      name: uninstallTarget.name,
-      scope: uninstallTarget.scope,
-      ...(uninstallTarget.workspacePath !== undefined ? { workspacePath: uninstallTarget.workspacePath } : {}),
-    })
+    const target = uninstallTarget
+    setBusyName(target.name)
+    void Promise.all(target.locations.map(loc =>
+      upstream.uninstallSkill({
+        name: target.name,
+        scope: loc.scope,
+        ...(loc.workspacePath !== undefined ? { workspacePath: loc.workspacePath } : {}),
+      }),
+    ))
       .then(() => { setReloadKey(k => k + 1) })
       .finally(() => { setBusyName(undefined); setUninstallTarget(undefined) })
+  }
+
+  const flash = (message: string): void => {
+    setNotice(message)
+    window.setTimeout(() => { setNotice(undefined) }, 3000)
+  }
+
+  const toggleGlobalSkills = (): void => {
+    const next = !globalEnabled
+    setGlobalEnabled(next)
+    void upstream.setGlobalSkillsState(next).catch(() => {
+      setGlobalEnabled(!next)
+      flash(t('skills.toggleFailed'))
+    })
   }
 
   const tabs: readonly BcPageTab[] = [
@@ -401,7 +607,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
   const installedBody: ReactNode = (() => {
     if (loading) return <p className="bc-web-ui-page-loading">{t('skills.installedLoading')}</p>
     if (loadError) return <BcPageEmpty icon={<SkillsIcon size={24} />} title={t('skills.installedErrorTitle')} hint={t('skills.installedErrorHint')} />
-    if (filtered.length === 0 && skills.length === 0) {
+    if (filtered.length === 0 && grouped.length === 0) {
       return <BcPageEmpty icon={<SkillsIcon size={24} />} title={t('skills.installedEmptyTitle')} hint={t('skills.installedEmptyHint')} />
     }
     if (filtered.length === 0) {
@@ -413,7 +619,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
           <SkillRow
             key={skill.name}
             skill={skill}
-            projectTitle={projectTitle(skill)}
+            locationLabels={locationLabelsFor(skill)}
             t={t}
             busy={busyName === skill.name}
             onEdit={() => { setEditTarget(skill) }}
@@ -489,6 +695,24 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
         ? marketBody
         : (
           <>
+            <div className="bc-web-ui-settings-krm-toolbar">
+              <div className="bc-web-ui-settings-krm-master">
+                <span className="bc-web-ui-settings-krm-master-label">{t('skills.globalSkillsMaster')}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={globalEnabled}
+                  aria-label={t('skills.globalSkillsMaster')}
+                  className={globalEnabled ? 'bc-web-ui-toggle bc-web-ui-toggle-on' : 'bc-web-ui-toggle'}
+                  onClick={toggleGlobalSkills}
+                  data-bc-skill-global-master
+                >
+                  <span className="bc-web-ui-toggle-knob" />
+                </button>
+              </div>
+            </div>
+            {!globalEnabled && <p className="bc-web-ui-settings-krm-hint" data-bc-skill-global-master-off>{t('skills.globalSkillsMasterHint')}</p>}
+            {notice !== undefined && <p className="bc-web-ui-notice" role="status">{notice}</p>}
             <div className="bc-web-ui-page-toolbar">
               <div className="bc-web-ui-search">
                 <SearchIcon size={14} />
@@ -517,7 +741,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
           </>
         )}
       {uploadOpen && (
-        <UploadModal workspaceOptions={workspaceOptions} upstream={upstream} t={t} onClose={() => { setUploadOpen(false) }} onDone={() => { setActiveTab('installed'); setReloadKey(k => k + 1) }} />
+        <UploadModal workspaceOptions={workspaceOptions} upstream={upstream} t={t} globalEnabled={globalEnabled} onClose={() => { setUploadOpen(false) }} onDone={() => { setActiveTab('installed'); setReloadKey(k => k + 1) }} />
       )}
       {marketInstallTarget !== undefined && (
         <MarketInstallModal
@@ -525,6 +749,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
           workspaceOptions={workspaceOptions}
           upstream={upstream}
           t={t}
+          globalEnabled={globalEnabled}
           onClose={() => { setMarketInstallTarget(undefined) }}
           onDone={() => { setReloadKey(k => k + 1) }}
         />
@@ -532,8 +757,10 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
       {editTarget !== undefined && (
         <EditSkillModal
           skill={editTarget}
+          workspaceOptions={workspaceOptions}
           upstream={upstream}
           t={t}
+          globalEnabled={globalEnabled}
           onClose={() => { setEditTarget(undefined) }}
           onSaved={() => { setReloadKey(k => k + 1) }}
         />

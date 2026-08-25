@@ -205,6 +205,14 @@ export interface UpstreamFace {
   uninstallSkill(input: { name: string; scope: 'global' | 'project'; workspacePath?: string }): Promise<void>
   /** Rewrite one installed skill's description frontmatter field. */
   editSkill(input: { name: string; scope: 'global' | 'project'; workspacePath?: string; description: string }): Promise<void>
+  /** Move one installed skill between install roots (the "edit install location" action). */
+  moveSkill(input: { name: string; fromScope: 'global' | 'project'; fromWorkspacePath?: string; toScope: 'global' | 'project'; toWorkspacePath?: string }): Promise<void>
+  /** Copy one installed skill to another root (no frontmatter re-validation; multi-target edit). */
+  copySkill(input: { name: string; fromScope: 'global' | 'project'; fromWorkspacePath?: string; toScope: 'global' | 'project'; toWorkspacePath?: string }): Promise<void>
+  /** Read the global-skills master switch (host `skills.state`; default off). */
+  getGlobalSkillsState(): Promise<boolean>
+  /** Write the global-skills master switch (host `skills.setState`). */
+  setGlobalSkillsState(enabled: boolean): Promise<boolean>
   /** List the current workspaces from the official live store (the rules/memory form's scope dropdown). */
   listWorkspaces(): Promise<readonly UpstreamWorkspaceOption[]>
   /** List stored behavior rules (host `krm.rules.list`). */
@@ -817,6 +825,24 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
     editSkill: async (input) => {
       const result = await extCall('/ext', 'skills.edit', input)
       if (!result.ok) throw new Error(`bc-web-ui: skills.edit rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    moveSkill: async (input) => {
+      const result = await extCall('/ext', 'skills.move', input)
+      if (!result.ok) throw new Error(`bc-web-ui: skills.move rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    copySkill: async (input) => {
+      const result = await extCall('/ext', 'skills.copy', input)
+      if (!result.ok) throw new Error(`bc-web-ui: skills.copy rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    getGlobalSkillsState: async () => {
+      const result = await extCall('/ext', 'skills.state', {})
+      if (!result.ok) throw new Error(`bc-web-ui: skills.state rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; enabled: boolean }).enabled
+    },
+    setGlobalSkillsState: async (enabled) => {
+      const result = await extCall('/ext', 'skills.setState', { enabled })
+      if (!result.ok) throw new Error(`bc-web-ui: skills.setState rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; enabled: boolean }).enabled
     },
     // Rules + memories (P3a krm) — the workspace list reads the official live
     // store snapshot (the shell frame's useWorkspaces projection), not /ext.

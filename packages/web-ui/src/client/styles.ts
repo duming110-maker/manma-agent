@@ -1138,6 +1138,41 @@ body[data-ds-dark-theme] .bc-web-ui-frame {
   color: var(--bc-text-muted);
   user-select: none;
 }
+/* Project multi-select list (upload a skill into several project roots). */
+.bc-web-ui-upload-workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--bc-border-strong);
+  border-radius: 8px;
+  background: var(--bc-bg-main);
+}
+.bc-web-ui-upload-workspace {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--bc-text-primary);
+  cursor: pointer;
+}
+.bc-web-ui-upload-workspace:hover { background: var(--bc-fill-hover); }
+.bc-web-ui-upload-workspace input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--bc-color-primary);
+  cursor: pointer;
+}
 .bc-web-ui-form-input,
 .bc-web-ui-form-select {
   height: 36px;

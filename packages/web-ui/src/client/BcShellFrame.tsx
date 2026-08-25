@@ -10,7 +10,7 @@
  * (`conversation` seat) is rendered verbatim; when no session is current the
  * official ConversationRoot shows its New-Session hero.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UpstreamFace, UpstreamFeedProps, UpstreamInjectFace } from '../adapters/upstream.ts'
 import { projectSessionHeader, projectWorkspaceOptions } from '../adapters/upstream.ts'
@@ -38,7 +38,7 @@ type BcMainView = 'conversation' | 'skills' | 'cron'
  * @param props - composed props.
  * @returns the frame element tree.
  */
-export function BcShellFrame({ useSessions, useWorkspaces, useLocale, setLocale, setTheme: setOfficialTheme, newSession, archiveSession, renameSession, listSessionSkills, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory, pickWorkspaceDirectory, t, renderSlot }: BcShellFrameProps) {
+export function BcShellFrame({ useSessions, useWorkspaces, useLocale, setLocale, setTheme: setOfficialTheme, newSession, archiveSession, renameSession, listSessionSkills, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, moveSkill, copySkill, getGlobalSkillsState, setGlobalSkillsState, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory, pickWorkspaceDirectory, t, renderSlot }: BcShellFrameProps) {
   const [view, setView] = useState<BcMainView>('conversation')
   const workspaces = useWorkspaces(state => state)
   const sessions = useSessions(state => state)
@@ -49,13 +49,28 @@ export function BcShellFrame({ useSessions, useWorkspaces, useLocale, setLocale,
   // The adapter face, identity-stable across renders: children's fetch effects
   // key on this object, so a per-render rebuild would re-run them every frame.
   const upstream = useMemo<UpstreamFace>(() => ({
-    newSession, archiveSession, renameSession, listSessionSkills, setLocale, setTheme: setOfficialTheme, pickWorkspaceDirectory, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory,
-  }), [newSession, archiveSession, renameSession, listSessionSkills, setLocale, setOfficialTheme, pickWorkspaceDirectory, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory])
+    newSession, archiveSession, renameSession, listSessionSkills, setLocale, setTheme: setOfficialTheme, pickWorkspaceDirectory, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, moveSkill, copySkill, getGlobalSkillsState, setGlobalSkillsState, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory,
+  }), [newSession, archiveSession, renameSession, listSessionSkills, setLocale, setOfficialTheme, pickWorkspaceDirectory, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, moveSkill, copySkill, getGlobalSkillsState, setGlobalSkillsState, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory])
 
   const brandName = locale.active === 'en' ? BRANDING.product.name.en : BRANDING.product.name.zh
   // The brand mark's glyph: the product name's first character (derived from
   // the branding single source — the mark is decorative, the name follows it).
   const brandMarkGlyph = brandName.charAt(0)
+
+  // Pivot back to the conversation surface whenever a session becomes current
+  // through the OFFICIAL workspace browser (open an existing task or a new
+  // session) while the shell is showing a non-conversation page (skills/cron).
+  // The official sidebar opens sessions via ctx.sessions.open without touching
+  // this shell's local `view`, so we track the live selection instead. Skips the
+  // initial mount (prev === current) and never forces conversation when there is
+  // no current session.
+  const currentSessionId = sessions.current
+  const prevSessionRef = useRef(currentSessionId)
+  useEffect(() => {
+    const prev = prevSessionRef.current
+    prevSessionRef.current = currentSessionId
+    if (currentSessionId !== undefined && currentSessionId !== prev) setView('conversation')
+  }, [currentSessionId])
 
   return (
     <div className="bc-web-ui-frame">

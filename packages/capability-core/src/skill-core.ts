@@ -124,8 +124,58 @@ export function installSkill(payload: unknown): { ok: true; value: unknown } | {
   const targetDir = skillTargetDir(p.target, p.workspacePath)
   const installedPath = join(targetDir, name)
   mkdirSync(targetDir, { recursive: true })
+  // Re-upload of the same skill overwrites the existing directory (先删再加).
+  rmSync(installedPath, { recursive: true, force: true })
   cpSync(p.sourcePath, installedPath, { recursive: true })
   return { ok: true, value: { ok: true, name, installedPath } }
+}
+
+/**
+ * Copy one installed skill to another install root (no source removal).
+ * Used by the multi-target edit flow: the source is already an installed,
+ * validated skill, so the copy skips frontmatter re-validation (which would
+ * reject a skill whose description was rewritten by `editSkill` into a format
+ * `validateSkillText` cannot re-parse, e.g. one containing double quotes).
+ */
+export function copySkill(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
+  const p = payload as { name?: string; fromScope?: string; fromWorkspacePath?: string; toScope?: string; toWorkspacePath?: string }
+  const from = skillAddress(p.name, p.fromScope, p.fromWorkspacePath)
+  if (!from.ok) return from
+  const to = skillAddress(p.name, p.toScope, p.toWorkspacePath)
+  if (!to.ok) return to
+  const name = p.name!.trim()
+  const fromDir = join(from.targetDir, name)
+  const toDir = join(to.targetDir, name)
+  if (!existsSync(join(fromDir, 'SKILL.md'))) return badRequest('skill copy source has no SKILL.md')
+  if (from.targetDir === to.targetDir) return { ok: true, value: { ok: true, name, installedPath: toDir } }
+  mkdirSync(to.targetDir, { recursive: true })
+  rmSync(toDir, { recursive: true, force: true })
+  cpSync(fromDir, toDir, { recursive: true })
+  return { ok: true, value: { ok: true, name, installedPath: toDir } }
+}
+
+/**
+ * Move one installed skill between install roots — the "edit install location"
+ * action (global ⇄ a project's `.agents/skills`). Copies the directory to the
+ * target root (overwriting an existing same-name skill there), then removes
+ * the source. A no-op when the two roots coincide.
+ */
+export function moveSkill(payload: unknown): { ok: true; value: unknown } | { ok: false; error: unknown } {
+  const p = payload as { name?: string; fromScope?: string; fromWorkspacePath?: string; toScope?: string; toWorkspacePath?: string }
+  const from = skillAddress(p.name, p.fromScope, p.fromWorkspacePath)
+  if (!from.ok) return from
+  const to = skillAddress(p.name, p.toScope, p.toWorkspacePath)
+  if (!to.ok) return to
+  const name = p.name!.trim()
+  const fromDir = join(from.targetDir, name)
+  const toDir = join(to.targetDir, name)
+  if (!existsSync(join(fromDir, 'SKILL.md'))) return badRequest('skill move source has no SKILL.md')
+  if (from.targetDir === to.targetDir) return { ok: true, value: { ok: true, name, installedPath: toDir } }
+  mkdirSync(to.targetDir, { recursive: true })
+  rmSync(toDir, { recursive: true, force: true })
+  cpSync(fromDir, toDir, { recursive: true })
+  rmSync(fromDir, { recursive: true, force: true })
+  return { ok: true, value: { ok: true, name, installedPath: toDir } }
 }
 
 /** Validate a skill edit/uninstall address and return its target dir (or a badRequest result). */
@@ -143,15 +193,17 @@ export function skillAddress(name: string | undefined, scope: string | undefined
 }
 
 /** List installed skills across the global root and the given project roots. */
-export function listSkills(payload: unknown): { ok: true; value: unknown } {
+export function listSkills(payload: unknown, includeGlobal = true): { ok: true; value: unknown } {
   const p = payload as { workspacePaths?: unknown }
   const paths = Array.isArray(p.workspacePaths)
     ? p.workspacePaths.filter((item): item is string => typeof item === 'string')
     : []
   const rows: InstalledSkillRow[] = []
-  for (const dir of listSkillDirs(join(dshHome(), 'skills'))) {
-    const info = skillInfoFrom(dir)
-    if (info !== undefined) rows.push({ ...info, scope: 'global', workspacePath: undefined, installedPath: dir })
+  if (includeGlobal) {
+    for (const dir of listSkillDirs(join(dshHome(), 'skills'))) {
+      const info = skillInfoFrom(dir)
+      if (info !== undefined) rows.push({ ...info, scope: 'global', workspacePath: undefined, installedPath: dir })
+    }
   }
   for (const workspacePath of paths) {
     for (const dir of listSkillDirs(join(workspacePath, '.agents', 'skills'))) {
