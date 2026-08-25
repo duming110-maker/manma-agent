@@ -94,16 +94,15 @@ function SkillRow({ skill, locationLabels, t, busy, onEdit, onUninstall }: {
 /** The local-install modal (P1-4): source dir + global/project target(s) + install.
  * When the target is "project", multiple projects may be selected — the skill is
  * installed into each selected project's root (multi-select install). */
-function UploadModal({ workspaceOptions, upstream, t, globalEnabled, onClose, onDone }: {
+function UploadModal({ workspaceOptions, upstream, t, onClose, onDone }: {
   workspaceOptions: UpstreamWorkspaceOptions
   upstream: UpstreamFace
   t: BcTranslate
-  globalEnabled: boolean
   onClose(): void
   onDone(): void
 }) {
   const [sourcePath, setSourcePath] = useState<string | undefined>(undefined)
-  const [target, setTarget] = useState<'global' | 'project'>(globalEnabled ? 'global' : 'project')
+  const [target, setTarget] = useState<'global' | 'project'>('global')
   const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>([])
   const [picking, setPicking] = useState(false)
   const [installing, setInstalling] = useState(false)
@@ -179,7 +178,7 @@ function UploadModal({ workspaceOptions, upstream, t, globalEnabled, onClose, on
                 type="button"
                 className={target === 'global' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
                 onClick={() => { setTarget('global') }}
-                disabled={installing || !globalEnabled}
+                disabled={installing}
               >
                 {t('skills.uploadTargetGlobal')}
               </button>
@@ -192,7 +191,6 @@ function UploadModal({ workspaceOptions, upstream, t, globalEnabled, onClose, on
                 {t('skills.uploadTargetProject')}
               </button>
             </div>
-            {!globalEnabled && <p className="bc-web-ui-form-hint">{t('skills.globalDisabledHint')}</p>}
             {target === 'project' && (
               <>
                 <div className="bc-web-ui-upload-workspaces">
@@ -225,16 +223,15 @@ function UploadModal({ workspaceOptions, upstream, t, globalEnabled, onClose, on
 }
 
 /** The market-install modal (P4): one entry + global/project target + install. */
-function MarketInstallModal({ skill, workspaceOptions, upstream, t, globalEnabled, onClose, onDone }: {
+function MarketInstallModal({ skill, workspaceOptions, upstream, t, onClose, onDone }: {
   skill: UpstreamMarketSkill
   workspaceOptions: UpstreamWorkspaceOptions
   upstream: UpstreamFace
   t: BcTranslate
-  globalEnabled: boolean
   onClose(): void
   onDone(): void
 }) {
-  const [target, setTarget] = useState<'global' | 'project'>(globalEnabled ? 'global' : 'project')
+  const [target, setTarget] = useState<'global' | 'project'>('global')
   const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>([])
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
@@ -280,7 +277,7 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, globalEnable
                 type="button"
                 className={target === 'global' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
                 onClick={() => { setTarget('global') }}
-                disabled={installing || !globalEnabled}
+                disabled={installing}
               >
                 {t('skills.marketTargetGlobal')}
               </button>
@@ -293,7 +290,6 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, globalEnable
                 {t('skills.marketTargetProject')}
               </button>
             </div>
-            {!globalEnabled && <p className="bc-web-ui-form-hint">{t('skills.globalDisabledHint')}</p>}
             {target === 'project' && (
               <>
                 <div className="bc-web-ui-upload-workspaces">
@@ -335,17 +331,18 @@ function MarketInstallModal({ skill, workspaceOptions, upstream, t, globalEnable
  * save flow copies the skill to newly-added locations (via `skills.copy`),
  * rewrites the description on every target, and uninstalls any original
  * location that is no longer selected. */
-function EditSkillModal({ skill, workspaceOptions, upstream, t, globalEnabled, onClose, onSaved }: {
+function EditSkillModal({ skill, workspaceOptions, upstream, t, onClose, onSaved }: {
   skill: GroupedSkill
   workspaceOptions: UpstreamWorkspaceOptions
   upstream: UpstreamFace
   t: BcTranslate
-  globalEnabled: boolean
   onClose(): void
   onSaved(): void
 }) {
   const [description, setDescription] = useState(skill.description)
-  const [globalSelected, setGlobalSelected] = useState(() => skill.locations.some(loc => loc.scope === 'global'))
+  const [target, setTarget] = useState<'global' | 'project'>(() =>
+    skill.locations.some(loc => loc.scope === 'global') ? 'global' : 'project',
+  )
   const [workspaceIds, setWorkspaceIds] = useState<readonly string[]>(() => {
     const ids: string[] = []
     for (const loc of skill.locations) {
@@ -359,7 +356,7 @@ function EditSkillModal({ skill, workspaceOptions, upstream, t, globalEnabled, o
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | undefined>(undefined)
 
-  const canSubmit = globalSelected || workspaceIds.length > 0
+  const canSubmit = target === 'global' || workspaceIds.length > 0
 
   const toggleWorkspace = (id: string): void => {
     setWorkspaceIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
@@ -369,7 +366,7 @@ function EditSkillModal({ skill, workspaceOptions, upstream, t, globalEnabled, o
     if (!canSubmit) return
     type Pos = { scope: 'global' | 'project'; workspacePath?: string }
     const targets: Pos[] = []
-    if (globalSelected) targets.push({ scope: 'global' })
+    if (target === 'global') targets.push({ scope: 'global' })
     for (const id of workspaceIds) {
       const ws = workspaceOptions.items.find(item => String(item.id) === id)
       if (ws !== undefined) targets.push({ scope: 'project', workspacePath: ws.path })
@@ -433,29 +430,43 @@ function EditSkillModal({ skill, workspaceOptions, upstream, t, globalEnabled, o
           </div>
           <div className="bc-web-ui-form-field">
             <label className="bc-web-ui-form-label">{t('skills.editLocationLabel')}</label>
-            <label className="bc-web-ui-upload-workspace">
-              <input
-                type="checkbox"
-                checked={globalSelected}
-                onChange={() => { setGlobalSelected(prev => !prev) }}
-                disabled={submitting || !globalEnabled}
-              />
-              <span>{t('skills.uploadTargetGlobal')}</span>
-            </label>
-            {!globalEnabled && <p className="bc-web-ui-form-hint">{t('skills.globalDisabledHint')}</p>}
-            <div className="bc-web-ui-upload-workspaces">
-              {workspaceOptions.items.map(item => {
-                const id = String(item.id)
-                const checked = workspaceIds.includes(id)
-                return (
-                  <label key={id} className="bc-web-ui-upload-workspace">
-                    <input type="checkbox" checked={checked} onChange={() => { toggleWorkspace(id) }} disabled={submitting} />
-                    <span>{item.title}</span>
-                  </label>
-                )
-              })}
+            <div className="bc-web-ui-seg-group">
+              <button
+                type="button"
+                aria-pressed={target === 'global'}
+                className={target === 'global' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
+                onClick={() => { setTarget('global'); setWorkspaceIds([]) }}
+                disabled={submitting}
+              >
+                {t('skills.uploadTargetGlobal')}
+              </button>
+              <button
+                type="button"
+                aria-pressed={target === 'project'}
+                className={target === 'project' ? 'bc-web-ui-seg bc-web-ui-seg-active' : 'bc-web-ui-seg'}
+                onClick={() => { setTarget('project') }}
+                disabled={submitting}
+              >
+                {t('skills.uploadTargetProject')}
+              </button>
             </div>
-            <span className="bc-web-ui-form-hint">{t('skills.uploadProjectMultiHint')}</span>
+            {target === 'project' && (
+              <>
+                <div className="bc-web-ui-upload-workspaces">
+                  {workspaceOptions.items.map(item => {
+                    const id = String(item.id)
+                    const checked = workspaceIds.includes(id)
+                    return (
+                      <label key={id} className="bc-web-ui-upload-workspace">
+                        <input type="checkbox" checked={checked} onChange={() => { toggleWorkspace(id) }} disabled={submitting} />
+                        <span>{item.title}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+                <span className="bc-web-ui-form-hint">{t('skills.uploadProjectMultiHint')}</span>
+              </>
+            )}
           </div>
           {error !== undefined && <p className="bc-web-ui-form-error" role="alert">{error}</p>}
         </div>
@@ -493,18 +504,6 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
   const [marketLoading, setMarketLoading] = useState(false)
   const [marketError, setMarketError] = useState(false)
   const [marketInstallTarget, setMarketInstallTarget] = useState<UpstreamMarketSkill | undefined>(undefined)
-  // 全局技能开关状态（docs/04-spec：默认关闭）。关闭时全局技能从列表隐藏、禁止安装到全局。
-  const [globalEnabled, setGlobalEnabled] = useState(false)
-  const [notice, setNotice] = useState<string | undefined>(undefined)
-
-  useEffect(() => {
-    let current = true
-    upstream.getGlobalSkillsState().then(
-      (enabled) => { if (current) setGlobalEnabled(enabled) },
-      () => {},
-    )
-    return () => { current = false }
-  }, [upstream])
 
   useEffect(() => {
     let current = true
@@ -515,7 +514,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
       () => { if (current) setLoadError(true) },
     ).finally(() => { if (current) setLoading(false) })
     return () => { current = false }
-  }, [upstream, workspaceOptions.loading, reloadKey, globalEnabled])
+  }, [upstream, workspaceOptions.loading, reloadKey])
 
   // Group flat rows by skill name: one row per unique skill (multiple install
   // locations merged into a single list entry).
@@ -583,20 +582,6 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
     ))
       .then(() => { setReloadKey(k => k + 1) })
       .finally(() => { setBusyName(undefined); setUninstallTarget(undefined) })
-  }
-
-  const flash = (message: string): void => {
-    setNotice(message)
-    window.setTimeout(() => { setNotice(undefined) }, 3000)
-  }
-
-  const toggleGlobalSkills = (): void => {
-    const next = !globalEnabled
-    setGlobalEnabled(next)
-    void upstream.setGlobalSkillsState(next).catch(() => {
-      setGlobalEnabled(!next)
-      flash(t('skills.toggleFailed'))
-    })
   }
 
   const tabs: readonly BcPageTab[] = [
@@ -695,24 +680,6 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
         ? marketBody
         : (
           <>
-            <div className="bc-web-ui-settings-krm-toolbar">
-              <div className="bc-web-ui-settings-krm-master">
-                <span className="bc-web-ui-settings-krm-master-label">{t('skills.globalSkillsMaster')}</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={globalEnabled}
-                  aria-label={t('skills.globalSkillsMaster')}
-                  className={globalEnabled ? 'bc-web-ui-toggle bc-web-ui-toggle-on' : 'bc-web-ui-toggle'}
-                  onClick={toggleGlobalSkills}
-                  data-bc-skill-global-master
-                >
-                  <span className="bc-web-ui-toggle-knob" />
-                </button>
-              </div>
-            </div>
-            {!globalEnabled && <p className="bc-web-ui-settings-krm-hint" data-bc-skill-global-master-off>{t('skills.globalSkillsMasterHint')}</p>}
-            {notice !== undefined && <p className="bc-web-ui-notice" role="status">{notice}</p>}
             <div className="bc-web-ui-page-toolbar">
               <div className="bc-web-ui-search">
                 <SearchIcon size={14} />
@@ -741,7 +708,7 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
           </>
         )}
       {uploadOpen && (
-        <UploadModal workspaceOptions={workspaceOptions} upstream={upstream} t={t} globalEnabled={globalEnabled} onClose={() => { setUploadOpen(false) }} onDone={() => { setActiveTab('installed'); setReloadKey(k => k + 1) }} />
+        <UploadModal workspaceOptions={workspaceOptions} upstream={upstream} t={t} onClose={() => { setUploadOpen(false) }} onDone={() => { setActiveTab('installed'); setReloadKey(k => k + 1) }} />
       )}
       {marketInstallTarget !== undefined && (
         <MarketInstallModal
@@ -749,7 +716,6 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
           workspaceOptions={workspaceOptions}
           upstream={upstream}
           t={t}
-          globalEnabled={globalEnabled}
           onClose={() => { setMarketInstallTarget(undefined) }}
           onDone={() => { setReloadKey(k => k + 1) }}
         />
@@ -760,7 +726,6 @@ export function BcSkillsPage({ upstream, workspaceOptions, t }: BcSkillsPageProp
           workspaceOptions={workspaceOptions}
           upstream={upstream}
           t={t}
-          globalEnabled={globalEnabled}
           onClose={() => { setEditTarget(undefined) }}
           onSaved={() => { setReloadKey(k => k + 1) }}
         />

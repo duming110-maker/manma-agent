@@ -13,8 +13,6 @@
  * - `skills.edit`          rewrite a skill's `description` frontmatter field
  * - `skills.move`          move an installed skill between install roots
  * - `skills.copy`          copy an installed skill to another root (no validation)
- * - `skills.state`         read the global-skills master switch
- * - `skills.setState`      write the global-skills master switch
  * - `skills.market.list`   read the bundled market manifest (06-skill-standard §6)
  * - `skills.market.install` fetch a manifest entry from GitHub + validate + install
  * - `cron.tasks.create`    append a task to the JSON-backed task store
@@ -53,8 +51,6 @@ import {
   badRequest, installSkill, listSkills, uninstallSkill, editSkill, moveSkill, copySkill,
   readMarketManifest, skillTargetDir,
 } from './skill-core.ts'
-import { skillsDomainSpec, type SkillsGlobalState } from './skill-state.ts'
-import type { DomainGlobal } from '@deepseek-ai/dsh-storage-domain'
 import { installMarketEntry } from './market.ts'
 import {
   createCronTask, listCronTasks, updateCronTask, deleteCronTask, listCronRuns,
@@ -113,60 +109,32 @@ function targetDirOf(payload: unknown): { ok: true; targetDir: string } | { ok: 
  * `this` is never relied on).
  * @param ctx - owning plugin context.
  * @param krm - the opened krm storage service (rules/memories CRUD).
- * @param skillsGlobal - the opened `bc_skills` domain global (global-skills switch).
  * @returns the dispatch handler.
  */
-function createHandler(ctx: Context, krm: KrmService, skillsGlobal: DomainGlobal<SkillsGlobalState>): ConnectionRpcHandler {
+function createHandler(ctx: Context, krm: KrmService): ConnectionRpcHandler {
   const host = hostOf(ctx)
   return async (endpoint, payload) => {
     switch (endpoint) {
       case 'ext.probe':
         return { ok: true, value: { ok: true, channel: 'ext', pong: payload } }
       // skills
-      case 'skills.install': {
-        const target = (payload as { target?: string }).target
-        // 全局技能开关关闭时拒绝安装到全局根（fail-closed）。
-        if (target === 'global' && !skillsGlobal.get().globalSkillsEnabled) {
-          return badRequest('global skills are disabled') as never
-        }
+      case 'skills.install':
         return installSkill(payload) as never
-      }
       case 'skills.list':
-        return listSkills(payload, skillsGlobal.get().globalSkillsEnabled) as never
+        return listSkills(payload) as never
       case 'skills.uninstall':
         return uninstallSkill(payload) as never
       case 'skills.edit':
         return editSkill(payload) as never
-      case 'skills.move': {
-        const toScope = (payload as { toScope?: string }).toScope
-        if (toScope === 'global' && !skillsGlobal.get().globalSkillsEnabled) {
-          return badRequest('global skills are disabled') as never
-        }
+      case 'skills.move':
         return moveSkill(payload) as never
-      }
-      case 'skills.copy': {
-        const toScope = (payload as { toScope?: string }).toScope
-        if (toScope === 'global' && !skillsGlobal.get().globalSkillsEnabled) {
-          return badRequest('global skills are disabled') as never
-        }
+      case 'skills.copy':
         return copySkill(payload) as never
-      }
-      case 'skills.state':
-        return { ok: true, value: { ok: true, enabled: skillsGlobal.get().globalSkillsEnabled } } as never
-      case 'skills.setState': {
-        const enabled = (payload as { enabled?: unknown }).enabled
-        if (typeof enabled !== 'boolean') return badRequest('skills.setState requires enabled (boolean)') as never
-        await skillsGlobal.set({ globalSkillsEnabled: enabled })
-        return { ok: true, value: { ok: true, enabled } } as never
-      }
       // skill market (docs/06-skill-standard §6)
       case 'skills.market.list':
         return { ok: true, value: readMarketManifest() } as never
       case 'skills.market.install': {
         const p = payload as { id?: string; target?: string; workspacePath?: string }
-        if (p.target === 'global' && !skillsGlobal.get().globalSkillsEnabled) {
-          return badRequest('global skills are disabled') as never
-        }
         if (typeof p.id !== 'string' || p.id.trim() === '') return badRequest('skills.market.install requires id') as never
         const target = targetDirOf(payload)
         if (!target.ok) return target as never
@@ -232,12 +200,9 @@ function createHandler(ctx: Context, krm: KrmService, skillsGlobal: DomainGlobal
 export async function apply(ctx: Context): Promise<void> {
   const krm = new KrmService(ctx, { workspaceRegistry: ctx.workspaceRegistry as WorkspaceRegistry })
   await krm.init()
-  const skillsDomain = await ctx.storageDomain.open(skillsDomainSpec)
-  const skillsGlobal = skillsDomain.global
-  ctx.effect(() => () => { void skillsDomain.close() }, 'bc-capability-core: skills domain close')
 
   ctx.effect(
-    () => ctx.connection.rpc.handle(EXT_CHANNEL, createHandler(ctx, krm, skillsGlobal), { authority: 'loopback' }),
+    () => ctx.connection.rpc.handle(EXT_CHANNEL, createHandler(ctx, krm), { authority: 'loopback' }),
     'bc-capability-core: /ext rpc channel',
   )
   ctx.effect(
