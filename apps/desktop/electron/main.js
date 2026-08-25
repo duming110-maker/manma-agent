@@ -91,13 +91,17 @@ async function bootstrap() {
     // 打包后 dsh 依赖闭包在 app.asar.unpacked（物理）；从物理路径加载 dsh CLI
     // 让 import.meta.url 物理 → profile fallback 的 junction 指向物理 node_modules。
     const dshBin = isPackaged ? unpackedAsarPath(resolveDshBin()) : resolveDshBin()
-    const childEnv = buildChildEnv({ dshHome, runtimeDir: shims.runtimeDir })
 
     // 资源定位：dev 用仓库路径；packaged 用物理 unpacked 资源
     //（process.resourcesPath = win-unpacked/resources，app.asar.unpacked 在其下）。
     const resourcesDir = isPackaged
       ? join(process.resourcesPath ?? '', 'app.asar.unpacked', 'resources')
       : join(DESKTOP_DIR, 'resources')
+    // 内置技能根：dev 用仓库源树，packaged 用 unpacked resources（dist/pack-plugins 拷入）。
+    const bundledSkillDir = isPackaged
+      ? join(resourcesDir, 'bundled-skills')
+      : join(DESKTOP_DIR, 'bundled-skills')
+    const childEnv = buildChildEnv({ dshHome, runtimeDir: shims.runtimeDir, bundledSkillDir })
     const bcPatch = isPackaged
       ? join(resourcesDir, 'cordis.patch.yml')
       : join(REPO_ROOT, 'profiles', 'bc-agent', 'cordis.patch.yml')

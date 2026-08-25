@@ -20,10 +20,29 @@ export function dshHome(): string {
 // frontmatter validation (docs/06-skill-standard §2)
 // ---------------------------------------------------------------------------
 
-/** Read one single-line frontmatter field (`key: value`, optional quotes). */
+/**
+ * Read one single-line frontmatter field (`key: value`), supporting bare
+ * scalars, single-quoted scalars (YAML `''` escape), and double-quoted JSON
+ * scalars (as written by {@link yamlScalar} via `JSON.stringify`, which
+ * escapes embedded `"`/`\`). The double-quoted form is the one our edit path
+ * produces for any value containing quotes or other unsafe characters, so the
+ * reader must round-trip it or an edited description silently fails to load.
+ */
 export function skillField(text: string, key: string): string | undefined {
-  const m = new RegExp(`^${key}:\\s*["']?([^"'\\n]+)["']?\\s*$`, 'm').exec(text)
-  return m?.[1]?.trim() || undefined
+  const line = new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(text)
+  const raw = line?.[1]?.trim()
+  if (raw === undefined || raw === '') return undefined
+  if (raw.startsWith('"')) {
+    try {
+      return JSON.parse(raw) as string
+    } catch {
+      return raw.replace(/^"|"$/g, '')
+    }
+  }
+  if (raw.startsWith("'")) {
+    return raw.replace(/^'|'$/g, '').replace(/''/g, "'")
+  }
+  return raw.replace(/["']$/, '').trim() || undefined
 }
 
 /** Kebab-case check (upstream skill-name grammar). */
@@ -85,9 +104,17 @@ export function skillInfoFrom(dir: string): Omit<InstalledSkillRow, 'scope' | 'w
   const text = readFileSync(md, 'utf8')
   const meta = validateSkillText(text)
   if (meta === undefined) {
-    // Unparseable frontmatter still lists (name falls back to the dir name,
-    // description empty) — the page surfaces the row so the user can fix it.
-    return { name: basename(dir), description: '', whenToUse: undefined, modelInvocable: true }
+    // Frontmatter invalid (e.g. a non-kebab `name` such as a Chinese skill
+    // name). The row still lists — keyed by the directory name — but we must
+    // NOT drop the fields that do parse: an edited description has to
+    // round-trip even when the name is invalid, otherwise the edit looks like
+    // it never saved.
+    return {
+      name: basename(dir),
+      description: skillField(text, 'description') ?? '',
+      whenToUse: skillField(text, 'whenToUse'),
+      modelInvocable: true,
+    }
   }
   return { name: meta.name, description: meta.description, whenToUse: meta.whenToUse, modelInvocable: meta.modelInvocable }
 }

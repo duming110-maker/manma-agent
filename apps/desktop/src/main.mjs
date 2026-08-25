@@ -23,6 +23,8 @@ const SPIKE_DSH_HOME = fileURLToPath(new URL('../.data/dsh-home', import.meta.ur
 const BC_PATCH = join(REPO_ROOT, 'profiles', 'bc-agent', 'cordis.patch.yml')
 /** 打包资源目录（dev 用仓库路径；tarball 模式 packaged 才用）。 */
 const RESOURCES_DIR = fileURLToPath(new URL('../resources', import.meta.url))
+/** 内置技能根（DSH_BUNDLED_SKILL_DIR）：随应用分发、不进技能管理页。 */
+const BUNDLED_SKILLS = fileURLToPath(new URL('../bundled-skills', import.meta.url))
 
 /** Loopback 绑定 + 端口 0（OS 分配）。 */
 const HOST = '127.0.0.1'
@@ -38,6 +40,9 @@ export function runHost() {
       : {}),
     ...(process.env.DSH_TELEMETRY_DISABLED === undefined
       ? { DSH_TELEMETRY_DISABLED: '1' }
+      : {}),
+    ...(process.env.DSH_BUNDLED_SKILL_DIR === undefined
+      ? { DSH_BUNDLED_SKILL_DIR: BUNDLED_SKILLS }
       : {}),
   }
   mkdirSync(env.DSH_HOME, { recursive: true })

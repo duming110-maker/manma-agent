@@ -98,7 +98,7 @@ export function ensurePluginsReady(options) {
   }
 }
 
-/** 构建子进程 env：DSH_HOME（per-brand）、DSH_TELEMETRY_DISABLED、私有 PATH、RUN_AS_NODE。 */
+/** 构建子进程 env：DSH_HOME（per-brand）、DSH_BUNDLED_SKILL_DIR（内置技能根）、DSH_TELEMETRY_DISABLED、私有 PATH、RUN_AS_NODE。 */
 export function buildChildEnv(options) {
   const env = {
     ...process.env,
@@ -108,6 +108,10 @@ export function buildChildEnv(options) {
   }
   if (process.env.DSH_HOME === undefined || process.env.DSH_HOME.trim() === '') env.DSH_HOME = options.dshHome
   if (process.env.DSH_TELEMETRY_DISABLED === undefined) env.DSH_TELEMETRY_DISABLED = '1'
+  // 内置技能根：skill-filesystem 的 bundled 层（rank 600），随应用分发、不进技能管理页。
+  if (options.bundledSkillDir !== undefined && process.env.DSH_BUNDLED_SKILL_DIR === undefined) {
+    env.DSH_BUNDLED_SKILL_DIR = options.bundledSkillDir
+  }
   return env
 }
 

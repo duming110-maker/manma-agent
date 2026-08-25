@@ -8,7 +8,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
 
@@ -39,6 +39,10 @@ export function packPlugins(options) {
 
   // cordis.patch.yml（profile 叠加，--patch 传给 dsh web）。
   copyFileSync(join(REPO_ROOT, 'profiles', 'bc-agent', 'cordis.patch.yml'), join(resourcesDir, 'cordis.patch.yml'))
+  // bundled-skills/skill-creator（内置技能，DSH_BUNDLED_SKILL_DIR 指向此根）。
+  rmSync(join(resourcesDir, 'bundled-skills'), { recursive: true, force: true })
+  cpSync(join(DESKTOP_DIR, 'bundled-skills'), join(resourcesDir, 'bundled-skills'), { recursive: true })
   console.log(`-> plugins packed: ${readdirSync(pluginsDir).join(', ')}`)
   console.log('-> cordis.patch.yml copied to resources/')
+  console.log('-> bundled-skills copied to resources/')
 }

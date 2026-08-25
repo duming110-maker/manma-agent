@@ -29,6 +29,7 @@ function requiredUnpacked(unpackedDir) {
   return [
     ['resources/cordis.patch.yml', join(unpackedDir, 'resources', 'cordis.patch.yml')],
     ['resources/branding.json', join(unpackedDir, 'resources', 'branding.json')],
+    ['resources/bundled-skills/skill-creator/SKILL.md', join(unpackedDir, 'resources', 'bundled-skills', 'skill-creator', 'SKILL.md')],
     ['resources/plugins/*.tgz', pluginsDir],
     ['node-pty prebuild conpty.node', join(prebuilds, 'conpty.node')],
     ['node-pty prebuild conpty_console_list.node', join(prebuilds, 'conpty_console_list.node')],
