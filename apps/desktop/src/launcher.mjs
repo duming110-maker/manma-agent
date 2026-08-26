@@ -35,6 +35,7 @@ export function resolveDshBin() {
 const BC_PLUGINS = [
   { name: 'web-ui', scopeName: '@bc-agent/web-ui' },
   { name: 'capability-core', scopeName: '@bc-agent/capability-core' },
+  { name: 'file-open', scopeName: '@bc-agent/file-open' },
 ]
 
 /** profile 里已安装的幂等标记路径。 */

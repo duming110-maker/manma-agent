@@ -1,0 +1,32 @@
+{
+  "name": "@bc-agent/file-open",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BC Agent Desktop host-side plugin: routes chat file-open by extension through a JSON config (default / program / folder / disabled), wrapping the documented ctx.apiProxy.host.openPath service",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.5",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.67.0"
+  }
+}

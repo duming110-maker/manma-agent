@@ -41,3 +41,9 @@
     # registers the /ext business RPC channel (D3').
     - id: bc-capability-core
       name: '@bc-agent/capability-core'
+
+    # bc-file-open: host-only file-open policy. Same "no client package"
+    # verdict as bc-capability-core; wraps the documented ctx.apiProxy.host
+    # .openPath service so a JSON config can route chat file-open by extension.
+    - id: bc-file-open
+      name: '@bc-agent/file-open'

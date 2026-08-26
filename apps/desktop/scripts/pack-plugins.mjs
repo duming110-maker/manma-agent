@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
 
 /** bc 插件清单（与 launcher 的 BC_PLUGINS 对应）。 */
-const PLUGINS = ['@bc-agent/web-ui', '@bc-agent/capability-core']
+const PLUGINS = ['@bc-agent/web-ui', '@bc-agent/capability-core', '@bc-agent/file-open']
 
 /** 是否 Windows（pnpm 需 .cmd）。 */
 const shell = process.platform === 'win32'
