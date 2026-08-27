@@ -85,13 +85,24 @@ const MEMORY_SYSTEM_PROMPT = [
 ].join('\n')
 
 /** The executor's view of the injected services. */
-const hostOf = (ctx: Context): CronHostServices => ({
-  agents: ctx.agents,
-  workspaceRegistry: ctx.workspaceRegistry as WorkspaceRegistry,
-  // The default-model service's Context declaration lives in its own package
-  // (not a dependency here); spelled out structurally, same as the timer.
-  defaultModel: (ctx as unknown as { agentDefaultModel: CronHostServices['defaultModel'] }).agentDefaultModel,
-})
+const hostOf = (ctx: Context): CronHostServices => {
+  const host: CronHostServices = {
+    agents: ctx.agents,
+    workspaceRegistry: ctx.workspaceRegistry as WorkspaceRegistry,
+    // The default-model service's Context declaration lives in its own package
+    // (not a dependency here); spelled out structurally, same as the timer.
+    defaultModel: (ctx as unknown as { agentDefaultModel: CronHostServices['defaultModel'] }).agentDefaultModel,
+  }
+  // The preset roster is opt-in: read lazily through ctx.get (api-proxy's
+  // no-side-effect stance) rather than injected, so a rosterless deployment
+  // still loads capability-core and the executor falls back to the host
+  // composition. Read once at wire-up; mount() re-resolves the default per run.
+  const agentPresets = (ctx as unknown as { get(name: string): unknown }).get('agentPresets')
+  if (agentPresets !== undefined) {
+    host.agentPresets = agentPresets as NonNullable<CronHostServices['agentPresets']>
+  }
+  return host
+}
 
 /** Resolve the target skill root for a market/local install payload. */
 function targetDirOf(payload: unknown): { ok: true; targetDir: string } | { ok: false; error: unknown } {

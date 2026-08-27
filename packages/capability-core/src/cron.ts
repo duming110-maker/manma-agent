@@ -25,6 +25,7 @@ import { CronExpressionParser, CronDate } from 'cron-parser'
 import { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
@@ -272,7 +273,8 @@ export interface CronHostServices {
     create(options: {
       sessionId: SessionId
       agentOptions?: AgentOptions
-      meta?: { cwd?: string }
+      meta?: { cwd?: string; agentPreset?: string }
+      setup?(agentCtx: Context): Promise<void> | void
     }): Promise<{ agent: Agent; dispose(): Promise<void> }>
   }
   workspaceRegistry: {
@@ -281,6 +283,15 @@ export interface CronHostServices {
   /** The deployment default model selection (the official settings read). */
   defaultModel: {
     currentSelection(): { provider: string; model: string; reasoningEffort?: string }
+  }
+  /**
+   * The preset roster that composes an agent's scoped world — the preset's own
+   * `skill-filesystem`/`tool-skill` rows, which is what discovers a workspace's
+   * project skills. Absent in a rosterless deployment (sessions share the host
+   * composition only), so the executor treats it as optional.
+   */
+  agentPresets?: {
+    mount(agentCtx: Context, presetId?: string): Promise<unknown>
   }
 }
 
@@ -333,10 +344,22 @@ export async function executeTask(host: CronHostServices, task: CronTask, run: C
       ? { provider: task.modelProvider, model: task.model }
       : host.defaultModel.currentSelection()
     const agentOptions: AgentOptions = { provider: selection.provider, model: selection.model }
+    // Compose the agent through the preset roster, exactly like the official
+    // `session.create` → `ensureSession` → `composeAgent` setup. Without this
+    // setup the agent publishes into the empty global layer: the preset's
+    // `skill-filesystem`/`tool-skill` rows never mount, so the session resolves
+    // no project skills for its workspace (agent-presets logs a "published
+    // without joining an agent preset" warning). A rosterless deployment skips
+    // the mount and inherits the host composition, the pre-preset behavior.
+    const presets = host.agentPresets
+    const setup = presets === undefined ? undefined : async (agentCtx: Context) => {
+      await presets.mount(agentCtx)
+    }
     const handle = await host.agents.create({
       sessionId,
       agentOptions,
       meta: { cwd: workspace.path },
+      ...setup === undefined ? {} : { setup },
     })
     const agent = handle.agent
     // Unattended permission pair (docs/04-spec 决策 18): the canonical
