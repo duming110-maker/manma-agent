@@ -52,7 +52,7 @@ export default {
     '!node_modules/electron-builder/**',
     '!node_modules/app-builder-lib/**',
     '!node_modules/@types/**',
-    '!**/*.md',
+    '!node_modules/**/*.md',
   ],
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
