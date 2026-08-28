@@ -52,7 +52,7 @@ pnpm run sync:reference   # 或 node scripts/sync-reference.mjs
 
 ## 设计规格
 
-全部设计决策见 [docs/README.md](docs/README.md)（规格文档总入口）。AI 开发规范见 [AGENTS.md](AGENTS.md)。
+全部设计决策见 [docs/README.md](docs/README.md)（规格文档总入口）。AI 开发规范见 [CLAUDE.md](CLAUDE.md)。
 
 ## 状态
 

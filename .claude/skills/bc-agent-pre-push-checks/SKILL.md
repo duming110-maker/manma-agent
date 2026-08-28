@@ -14,7 +14,7 @@ whenToUse: 用户说「提交」「推送」「发 PR」或问「推送前要跑
 2. 涉及 UI/文案/双语：+ 双语平衡检查 + 冒烟 S10
 3. 涉及上游触点 / slot / 注入 / 存储：+ 对应冒烟（S1–S10，见 docs/）
 4. 涉及打包 / 原生模块：+ 打包冒烟（P1 后）
-5. 涉及技能改动（`.agents/skills/*`）：+ 按 `docs/06-skill-standard.md` 核对 frontmatter（name/description 必填、kebab-case、description 触发导向）
+5. 涉及技能改动（`.claude/skills/*`）：+ 按 `docs/06-skill-standard.md` 核对 frontmatter（name/description 必填、kebab-case、description 触发导向）
 
 ## 原则
 

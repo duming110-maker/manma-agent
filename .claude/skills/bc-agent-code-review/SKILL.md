@@ -27,6 +27,6 @@ capability seam 三件套、slot 纪律（`packages/client/AGENTS.md`）、sessi
 ## 流程
 
 1. 读 `reference/upstream/AGENTS.md`（root）+ 本次改动涉及的包 AGENTS.md。
-2. 读本仓库根 `AGENTS.md` 铁律。
+2. 读本仓库根 `CLAUDE.md` 铁律。
 3. 对照 diff 逐条核 bc 特有 + dsh 约定。
 4. 输出：阻断问题 / 非阻断建议 / 需冒烟验证项。

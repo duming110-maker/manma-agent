@@ -34,6 +34,13 @@ apps/desktop/.data/
 .env.*
 !.env.example
 
+# ---- AI 规范目录桥（Windows junction，本地经 scripts/setup-agent-links.ps1 重建，不入库） ----
+# .claude/ 是正典（skills + notes + roles，已入库）。
+# .agents/skills 是 dsh skill-filesystem 的 rank-200 项目技能发现根（上游契约路径，不可改名）；
+# .trae/skills 供 Trae 读取；junction 无法跨平台提交，故整体忽略。
+.agents/
+.trae/
+
 # ---- logs ----
 *.log
 /.vs

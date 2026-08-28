@@ -9,7 +9,7 @@
 
 ## 开工前必读（按任务卡取用）
 
-1. 根 `AGENTS.md`（六条铁律）。
+1. 根 `CLAUDE.md`（六条铁律）。
 2. `docs/04-spec.md` 对应功能章节 + `docs/03-architecture.md` 对应决策。
 3. 上游契约：`reference/upstream/docs/` + 涉及包的 `reference/upstream/packages/*/AGENTS.md`（capability seam / slot / session event / `ctx.effect` / ESM / `strict` / JSDoc）。
 

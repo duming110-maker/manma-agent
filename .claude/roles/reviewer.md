@@ -19,7 +19,7 @@
 
 ## 流程
 
-1. 读 `reference/upstream/AGENTS.md` + 涉及包的 `packages/*/AGENTS.md` + 根 `AGENTS.md`。
+1. 读 `reference/upstream/AGENTS.md` + 涉及包的 `packages/*/AGENTS.md` + 根 `CLAUDE.md`。
 2. 读改动文件 / diff。
 3. 重跑验收命令（typecheck / test / 冒烟）。
 4. 输出：阻断问题（含定位）→ 非阻断建议 → 需冒烟验证项 → verdict。
