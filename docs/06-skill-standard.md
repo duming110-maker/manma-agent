@@ -1,8 +1,8 @@
 # 06 技能编写标准（SKILL.md）
 
 - 版本：v1.0（2026-08-19）
-- 上级文档：[README.md](README.md)；规格出处：[04-spec.md §3.3](04-spec.md)（F3 技能）
-- 适用范围：本仓库 `.agents/skills/*`、工作区 `<工作区根>/.agents/skills/*`、全局 `~/.dsh/skills` 的全部技能
+- 上级文档：[README.md](README.md)；规格出处：[04-spec.md §3.3](spec-v0.8-archive/04-spec.md)（F3 技能）
+- 适用范围：本仓库 `.claude/skills/*`、工作区 `<工作区根>/.agents/skills/*`、全局 `~/.dsh/skills` 的全部技能
 
 本仓库所有技能的 SKILL.md 必须符合本标准。标准 = **dsh 上游契约**（机器可读）+ **skill-creator 写法**（模型可触发）+ **bc 应用字段**（页面可展示）。
 
@@ -58,8 +58,8 @@ user-invocable: true      # 可选，false = /name 手势不触发（默认 true
 ## 5. 校验与出处
 
 - 上游契约出处：`reference/upstream/docs/subsystems/skills.zh.md`、`reference/upstream/packages/skill/*/README*`。
-- 写法范本：`.agents/skills/skill-creator/SKILL.md`（带 frontmatter + 分层资源的标准示例）。
-- 评审（`.agents/skills/bc-agent-code-review`）与推送前检查（`.agents/skills/bc-agent-pre-push-checks`）按本标准核对技能改动。
+- 写法范本：`apps/desktop/bundled-skills/skill-creator/SKILL.md`（产品内置版，带 frontmatter + 分层资源的标准示例）。
+- 评审（`.claude/skills/bc-agent-code-review`）与推送前检查（`.claude/skills/bc-agent-pre-push-checks`）按本标准核对技能改动。
 - 应用安装校验（capability-core `skills.install`）落地后按 §2 执行。
 
 ## 6. 技能市场清单（skills-market.json）

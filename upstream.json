@@ -8,8 +8,7 @@
     "demoDirs": [
       "deepseek-harness-desktop",
       "frontend-user",
-      "skin-plugin",
-      "TencentDB-Agent-Memory"
+      "skin-plugin"
     ]
   },
   "npm": {

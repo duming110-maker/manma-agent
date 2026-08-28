@@ -19,5 +19,5 @@ whenToUse: 用户说「提交」「推送」「发 PR」或问「推送前要跑
 ## 原则
 
 - 不默认全量；按 diff 选最小覆盖。
-- 冒烟清单 S1–S10 见 `docs/03-architecture.md` §7；技能标准见 `docs/06-skill-standard.md`。
-- 冒烟未落地（`scripts/smoke` 尚不存在）时，标注「待 S 冒烟」并人工核对应清单项。
+- 冒烟清单 S1–S10 见 `docs/spec-v0.8-archive/03-architecture.md` §7；技能标准见 `docs/06-skill-standard.md`。
+- 冒烟脚本尚未落地（见看板 P5-0）：标注「待 S 冒烟」并人工核对应清单项；打包改动以 `pnpm --filter desktop dist` 成功为门禁。

@@ -5,20 +5,22 @@
 ## 这是什么
 
 - **不是 fork**：上游 `@deepseek-ai/dsh-*` 全部走 npm 依赖，核心代码零修改。
-- **三层**：Electron 桌面壳（`apps/desktop` + `packages/shell`）→ 上游 dsh（npm 依赖）→ 业务插件（`packages/capability-*`，profile 叠加）。
+- **三层**：Electron 桌面壳（`apps/desktop`）→ 上游 dsh（npm 依赖）→ 业务插件（`packages/` 下 `@bc-agent/web-ui`、`@bc-agent/capability-core`、`@bc-agent/file-open`，profile 叠加）。
 
 ## 目录
 
 ```
-├── apps/            Electron 壳
-├── packages/        bc 插件包（@bc-agent/*）
+├── apps/            Electron 壳（desktop）+ 前端原型（frontend-user，仅移植参考）
+├── packages/        bc 插件包（web-ui / capability-core / file-open）
 ├── profiles/        cordis.patch.yml 组装
 ├── branding/        品牌配置（多品牌白标）
-├── scripts/         打包 / 冒烟 / 同步 reference
-├── docs/            设计规格文档（规格权威来源）
+├── scripts/         打包 / reference 同步 / agent 桥接脚本
+├── docs/            设计规格文档（规格权威来源；v0.8 规划正文在 spec-v0.8-archive/ 冻结存档）
+├── .claude/         AI 开发规范正典（skills + notes + roles）
+├── .trae/           Trae 技能桥（本地 junction，不入库）
 ├── reference/       只读资料镜像（git 忽略，见下）
 ├── upstream.json    钉住的上游版本 + reference SHA
-└── .agents/         skills + notes（AI 开发规范）
+└── CLAUDE.md        AI 开发规范（铁律/命令/约定）
 ```
 
 ## 开发与运行
@@ -36,7 +38,12 @@ pnpm run typecheck               # 全 workspace typecheck
 pnpm run lint                    # 全 workspace lint
 ```
 
-`apps/frontend-user` 是自研 UI 原型（mock 数据、无后端），P2 将移植为 `packages/web-ui` 布局插件。`apps/desktop` 当前是 P0 spike 形态的最小 Node 入口（Electron 壳是 P1）：首启自动构建并 `dsh plugin add link:` 安装 `@bc-agent/web-ui` 与 `@bc-agent/capability-core`，然后以 `dsh web --patch profiles/bc-agent/cordis.patch.yml` 启动——浏览器可见自研侧栏 + 官方对话区，业务探测 RPC 在 `/ext/ext.probe`。
+`apps/frontend-user` 是自研 UI 原型（mock 数据、无后端），仅作 `packages/web-ui` 的移植参考。日常开发与打包：
+
+```sh
+pnpm --filter desktop dev         # 起 dsh Host（叠加 bc-agent profile）
+pnpm --filter desktop dist        # Electron + NSIS 打包
+```
 
 ## reference/ 同步
 
@@ -56,4 +63,4 @@ pnpm run sync:reference   # 或 node scripts/sync-reference.mjs
 
 ## 状态
 
-P0 可行性 spike 六卡全部通过（2026-08-18）：frontend-user 入仓可构建、dsh Host 启动（npm 闭包 0.1.0-rc.7 锁定）、最小布局插件（D1/D2/D10 实证）、`/ext` 通道（D3' GO，S3 栅栏实测）、工作区机制（S6 成立，D7 纯转发定案）、打包形态（官方 loader 加载闭环）。产出见 `docs/spike/`，决策留痕见 `.agents/notes/implemented/`。下一步：P1 桌面壳（Electron + NSIS）。尚未对接 git、尚未开源。
+基础功能已基本可用（2026-08-28）：P0 可行性 spike 六卡通过（产出见 `docs/spike/`）、P2 外壳三页与会话流程落地、P3a 规则与记忆上线、P4 cron 引擎与技能市场可用、P1-0 桌面打包（Electron + NSIS）通过。剩余为收尾（P2-f 双语文案、P3b-2/3 技能启停与强制选工作区）与发布工程（P5 冒烟/备份/自动更新），执行视图见 [docs/任务看板.md](docs/任务看板.md)，决策留痕见 `.claude/notes/implemented/`。

@@ -1,12 +1,12 @@
-# BC Agent 桌面版规格文档（v0.9，现状对照已加 + 技能标准）
+# BC Agent 桌面版规格文档（v0.9.1，归档收口）
 
-- 版本：v0.9（2026-08-19；v0.8 为评审基线，本版新增「现状与规划对照」与「06-skill-standard.md」）
-- 状态：P0/P2 主体落地（代码事实见 [现状与规划对照](#现状与规划对照v09)）；开发前先读对照表，避免按已过时规划开工
-- 评审方式：将本目录全部文档 + `05-references.md` 中列出的外部材料一并交给评审 AI / 评审人
+- 版本：v0.9.1（2026-08-28；v0.8 评审基线 → v0.9 加现状对照与技能标准 → v0.9.1 将 01–05 五篇规划正文冻结归档至 [spec-v0.8-archive/](spec-v0.8-archive/README.md)，本 README 收口为现役唯一入口）
+- 状态：基础功能已落地（技能、定时任务、规则、记忆、安装包；代码事实见 [现状与规划对照](#现状与规划对照v09)）；开发前先读对照表，避免按已归档规划开工
+- 评审方式：将现役文档 + [spec-v0.8-archive/05-references.md](spec-v0.8-archive/05-references.md) 中列出的外部材料一并交给评审 AI / 评审人
 
 ## 现状与规划对照（v0.9）
 
-> 本套规格撰写于 2026-08-18（P0 前）。下表是**开发期事实基线**（代码现状以 HEAD `d13d8b2` 为准）：开发新功能前先读它，文档与代码的分层以本表为界。
+> 本套规格撰写于 2026-08-18（P0 前，已冻结归档）。下表是**开发期事实基线**（代码现状以 main 分支当前 HEAD 为准）：开发新功能前先读它，文档与代码的分层以本表为界。
 
 ### 功能对照
 
@@ -15,30 +15,31 @@
 | 会话/对话区 | F1（P2） | 官方 ui-conversation 嵌入（bc 壳渲染 + 会话头） | 无差距 |
 | 工作区/会话列表 | F2（P0/P2） | 侧栏嵌官方 ui-workspace 浏览器（P1-4 修订；自研 SessionList.tsx 已删） | 无差距 |
 | 新建任务 | F1 | 官方 `startSession` + 官方 hero（自研 WelcomeView.tsx 已删） | 文档 §5 路由描述过时，以本表为准 |
-| 技能管理 | F3（P3b） | capability-core `/ext`：安装/卸载/改描述/列表（global+project）已可用 | 缺：frontmatter 校验、启停、useCount 统计、七层口径标注 |
-| 定时任务 | F4（P4） | UI + CRUD + 手动运行记录（JSON 文件）可用 | **缺执行引擎**：cron-parser 调度、到点起会话、SQLite 执行记录、never 权限钉死 |
+| 技能管理 | F3（P3b） | capability-core `/ext`：安装/卸载/编辑/移动/复制/列表（global+project）+ frontmatter 校验 + 技能市场（GitHub 拉取）+ 内置 skill-creator 可用 | 缺：启停、useCount 统计、七层口径标注（P3b-2） |
+| 定时任务 | F4（P4） | cron-parser 调度引擎 + 到点真起会话（workspace-write + never 无人值守对）+ 防重叠 + 运行记录（JSON，上限 200 条）可用 | 缺：任务存储迁 `ctx.storage`（P4-1）、执行记录 SQLite 化（P4-5，暂缓） |
 | 规则 | F5（P3a） | capability-core `bc_krm` 域 + `/ext krm.rules.*` + 设置页规则 CRUD + `systemPrompt.section()` 注入 | 无差距 |
 | 记忆 | F6（P3a） | capability-core `bc_krm` 域 + `/ext krm.memories.*` + 设置页记忆 CRUD（四类型/作用域/新鲜度/开关）+ `systemPrompt.context()` 索引注入（工作区过滤）+ **AI 自动沉淀**（`bc_write_memory` 工具，总开关门控 + 去重） | 无差距 |
 | 设置/凭证/模型 | F8（P5 完善） | 官方 settings 内嵌（bc「规则与记忆」section 已挂官方导航） | 无差距 |
 | 色调/皮肤 | F7（P2） | `--bc-*` 令牌 + branding 主色（编译期）+ 官方 `--dsw-*` 覆盖 | 皮肤插件化后置 |
 | 双语 | F10（P2） | zh/en 字典 + `t` seat（bc 命名空间） | S10 冒烟未落地 |
-| 桌面壳/安装包 | P1（Electron+NSIS） | Electron 壳（spawn dsh 子进程 + per-brand DSH_HOME + ELECTRON_RUN_AS_NODE）+ NSIS 安装包（`BC-Agent-<ver>-x64-Setup.exe`）+ 插件 tarball 首启安装 + sourcemap + 白标 | 核心通过；自动更新/托盘增强/PS7 检测/真机 NSIS 交互验证留 P5 |
+| 桌面壳/安装包 | P1（Electron+NSIS） | Electron 壳（spawn dsh 子进程 + per-brand DSH_HOME + ELECTRON_RUN_AS_NODE）+ NSIS 安装包（`BC-Agent-<ver>-x64-Setup.exe`）+ 插件 tarball 首启安装 + sourcemap + 白标 | 核心通过（P1-0）；自动更新/托盘增强/PS7 检测/真机 NSIS 交互验证留 P5 |
+| 文件打开方式 | 未编号（后加） | 独立插件 `@bc-agent/file-open`：包装文档化 `ctx.apiProxy.host.openPath`，JSON 配置自定义打开方式 | 设计上无 UI（手改 `$DSH_HOME/bc-file-open.json`） |
 
 ### 结构对照（文档 vs 代码）
 
-- 文档规划 6 个包（web-ui / capability-core / -workspace / -cron / -skillx / -krm），**代码实际 2 个**：capability-core 以 MVP 合并了 workspace 薄层、技能管理、定时任务存储；krm 未建。
+- 文档规划 6 个包（web-ui / capability-core / -workspace / -cron / -skillx / -krm），**代码实际 3 个**：`capability-core` 以 MVP 合并了 workspace 薄层、技能管理、定时任务、规则/记忆（krm）；`file-open` 为后加的独立小插件。
 - 文档 F3/F4 的完整形态（skillx 管理流、cron 引擎）仍是**规划**，当前代码是**可用的 MVP**——两者以本表为界，开发时不得混为一谈。
 - `apps/frontend-user/` 保留为移植参考（不参与构建分发）。
 
 ### 下一步开发基线（执行视图见 `任务看板.md`）
 
-1. **P3b 收尾**（技能启停/useCount、首次启动强制选工作区）
-2. **P1-0 桌面打包**（最后，依据 P0-5 契约）
-3. P5 发布：S8 storage 版本演练完整版、S10 全应用冒烟、备份/升级演练
+1. **P2-f 收尾**（文案抽取 zh/en + S10 双语冒烟，P2-0 总卡待验收）
+2. **P3b-2/3**（技能启停 + useCount、首次启动强制选工作区）
+3. P5 发布：S1–S10 冒烟脚本落地、备份 + 自动更新 + 合规 + 升级演练（P5-0 未拆解）
 
 ## 路径映射（迁入独立仓库后）
 
-本套文档撰写时位于上游仓库工作副本内，其中引用的路径按上游仓库书写。迁入本仓库 `docs/` 后，路径对应关系如下：
+本套文档撰写时位于上游仓库工作副本内，其中引用的路径按上游仓库书写。**归档正文（spec-v0.8-archive/ 与 spike/）中的 `demo/...`、`packages/...` 等均为历史写法**，迁入本仓库后路径对应关系如下：
 
 | 文档中写法 | 本仓库对应 |
 |---|---|
@@ -54,11 +55,17 @@
 
 | 文件 | 内容 | 评审重点 |
 |---|---|---|
-| [01-background.md](01-background.md) | 项目缘起、现有资产盘点、上游能力事实清单 | 事实是否准确、资产评估是否成立 |
-| [02-goals.md](02-goals.md) | 目标、非目标、约束、成功标准 | 范围边界是否合理（单用户先行/多用户后置） |
-| [03-architecture.md](03-architecture.md) | 总体架构、关键技术决策及备选、仓库结构、升级适配策略 | 架构是否成立、决策理由是否充分、有无更优解 |
-| [04-spec.md](04-spec.md) | 功能规格（F1–F10 逐一）、数据模型、API 面、前端规格、分期计划、风险清单 | **核心评审对象**：完整性、可行性、遗漏 |
-| [05-references.md](05-references.md) | 参考材料索引、三份调研存档、概念映射表 | 供交叉验证 |
+| [06-skill-standard.md](06-skill-standard.md) | SKILL.md 编写标准（frontmatter 契约 + description 写法 + 技能市场清单格式） | 技能改动以此为准 |
+| [任务看板.md](任务看板.md) | 开发任务卡与状态（执行视图） | 任务推进唯一驱动入口 |
+| [产品方案-202608.md](产品方案-202608.md) | 立项/成本论证（面向决策者，PDF 为对外快照） | 演进路线与成本测算 |
+| [spike/](spike/) | P0 spike 结论存档（slot/打包/通道/工作区源码级事实） | 上游升级时逐条重核 |
+| [spec-v0.8-archive/](spec-v0.8-archive/README.md) | **冻结存档**：01-background / 02-goals / 03-architecture / 04-spec / 05-references 五篇规划正文 | 仅作历史权威；G2 与 S1–S10 冒烟清单的权威定义在此 |
+
+## AI 开发规范正典
+
+AI 开发规范（技能 / 决策留痕 / 角色提示词）正典在仓库根 **`.claude/`**（`skills/`、`notes/`、`roles/`，已入 git）：
+- `.agents/skills` 与 `.trae/skills` 仅为指向 `.claude/skills/<name>` 的 Windows junction 桥（前者是 dsh 项目技能发现根，后者供 Trae 读取），不入库，clone 后经 `scripts/setup-agent-links.ps1` 重建。
+- 仓库根规范文件是 `CLAUDE.md`（原 AGENTS.md 已并入）。
 
 ## 三方评审与修订状态（v0.5）
 
@@ -66,7 +73,7 @@
 
 | # | 三方一致结论 | v0.5 落点 |
 |---|---|---|
-| 1 | 上游已内置完整工作区域（`workspace.*` RPC + `ctx.workspaceRegistry` + `session.create({workspaceId})`），自建两表属重复建设 | F2 改「上游唯一事实源 + bc 薄层」，删 workspaces/sessionBindings 表与 `/ext/workspaces`（[04-spec §3.2](04-spec.md)） |
+| 1 | 上游已内置完整工作区域（`workspace.*` RPC + `ctx.workspaceRegistry` + `session.create({workspaceId})`），自建两表属重复建设 | F2 改「上游唯一事实源 + bc 薄层」，删 workspaces/sessionBindings 表与 `/ext/workspaces`（[04-spec §3.2](spec-v0.8-archive/04-spec.md)） |
 | 2 | 会话删除应直接用官方 `workspace.archiveSession`（隐藏 + 保留日志 + 可恢复） | §3.1 改写，撤销 /ext 隐藏标记 |
 | 3 | 注入落日志：第三方自定义会话事件当前不可写也不必写——官方 `request/header` 事件已落盘完整渲染后的 system prompt，C6 天然满足 | §6 改写，S4 冒烟改为验证 `request/header.header.system` + runtime-context 快照 |
 | 4 | R11 关闭：`session.create` 原生接受 `workspaceId`/`cwd`（互斥校验） | 风险清单改写，P0 spike ④ 降级为确认性验证 |
@@ -75,18 +82,18 @@
 | 7 | P3 过重应拆分 | §8 改为 P3a（krm）/ P3b（skillx） |
 | 8 | 业务存储分层：低量实体走 `ctx.storage` domain，高增长实体（执行记录）第一天进自有 `node:sqlite` | §4 开头总则 + D4 改写 |
 
-另吸收各评审独有问题（storage/会话日志升级断裂演练、`/ext` 承载改 `connection.rpc.handle` 继承官方栅栏、库扫描忽略规则、知识正文落盘两难、cron 时序与并发、技能七层口径、Windows 三点风险、品牌独立 DSH_HOME 等），详见 [04-spec §9/§10](04-spec.md)。
+另吸收各评审独有问题（storage/会话日志升级断裂演练、`/ext` 承载改 `connection.rpc.handle` 继承官方栅栏、库扫描忽略规则、知识正文落盘两难、cron 时序与并发、技能七层口径、Windows 三点风险、品牌独立 DSH_HOME 等），详见 [04-spec §9/§10](spec-v0.8-archive/04-spec.md)。
 
 ## 配套外部材料（评审时应查阅）
 
 | 材料 | 路径 |
 |---|---|
-| 多用户版架构设计 v0.8.1（领域模型来源） | `demo/docs/BC Agent 系统架构设计方案 v0.8.1.md` |
-| 自研前端（UI 移植来源） | `demo/frontend-user/` |
-| dsh 上游源码（含文档） | 本仓库 `docs/`、`packages/` |
-| 桌面化参考项目 | `demo/deepseek-harness-desktop/` |
-| 皮肤插件教学示例 | `demo/skin-plugin/` |
-| TencentDB-Agent-Memory | `demo/TencentDB-Agent-Memory/` |
+| 多用户版架构设计 v0.8.1（领域模型来源） | `reference/design/BC Agent 系统架构设计方案 v0.8.1.md` |
+| 自研前端（UI 移植来源） | `reference/demo/frontend-user/` |
+| dsh 上游源码（含文档） | `reference/upstream/docs/`、`reference/upstream/packages/` |
+| 桌面化参考项目 | `reference/demo/deepseek-harness-desktop/` |
+| 皮肤插件教学示例 | `reference/demo/skin-plugin/` |
+| TencentDB-Agent-Memory | **未入镜像**（已从 `upstream.json` demoDirs 移除；评估结论见 [spec-v0.8-archive/05-references.md §3](spec-v0.8-archive/05-references.md)） |
 
 > 注：三方评审报告（`deepseek评审/`、`GLM评审问题/`、`kimi评审/`）与人工审核清单已于 2026-08-19 清理删除（结论已吸收进 v0.5 修订；原文可从 git 历史找回）。
 
@@ -121,6 +128,7 @@
 
 ## 变更记录
 
+- v0.9.1（2026-08-28）：**归档收口**——01–05 五篇规划正文冻结归档至 [spec-v0.8-archive/](spec-v0.8-archive/README.md)（正文不改写，勘误外置归档 README）；本 README 收口为现役唯一入口；对照表刷新（cron 引擎/技能校验已落地、补 file-open 包、结构对照改 3 包、下一步基线更新）；配套材料表路径统一 `reference/` 写法；TencentDB-Agent-Memory 标注未入镜像；新增「AI 开发规范正典 = `.claude/`」说明。
 - v0.9（2026-08-19）：新增「现状与规划对照」节（代码事实基线，HEAD d13d8b2；含功能/结构/下一步基线三张表）；新增 [06-skill-standard.md](06-skill-standard.md)（SKILL.md 编写标准：dsh frontmatter 契约 + skill-creator 写法 + bc 应用字段）；任务看板刷新实际状态并拆解 P3a/P4（另见任务看板 v0.9 说明）。
 - v0.8（2026-08-18）：工作区改为「必须手动选择」——移除「默认工作区」自动种子（不再创建 `$DSH_HOME/workspaces/default/`，工作文件不落 C 盘）；首次启动强制走原生文件夹选择框，无工作区则不可进入会话；删除 workspaceExt.isDefault 字段；「自由任务」兜底措辞改为「会话必须显式选工作区」。
 - v0.7（2026-08-18）：人工审核后调整。去「库」（跨会话文件归集后置另做方案，删 capability-library / libraryIndex / F5 / R15/R6 及库相关路由）；去「知识库」（后置单独规划，删 knowledgeEntries / F6 / R16/R5 及知识相关注入段）；明确默认工作区路径与原生文件夹选择主交互；补上游未来若内置记忆的应对（R23）；功能重编号 F1–F10、§3/§4/§6 节号与交叉引用同步更新。
