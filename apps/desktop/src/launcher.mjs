@@ -12,11 +12,17 @@
  * - 插件分发：dev = `link:<repo>/packages/<pkg>`（改码即生效）；packaged =
  *   `resources/plugins/<name>-<ver>.tgz`（`file:` tarball，离线、不可变拷贝），
  *   首启 `dsh plugin --profile web add <tgz>`，幂等标记存在即跳过。
+ *
+ * 变更履历：
+ * - 2026-08-31 修复安装路径含空格时 `dsh plugin add` 失败（exit -4058）：上游
+ *   Windows 转发 pnpm 用 `shell: true` 裸拼参数，tarball spec 被空格拆断；现
+ *   tarball 模式先物理拷到无空格 staging（`stagingDir`，= userData/runtime/plugins）
+ *   再安装。
  * @module desktop/src/launcher
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { createLogSink, scanPort } from './port-parse.mjs'
@@ -45,7 +51,8 @@ export function pluginInstalledMarker(dshHome, scopeName) {
 
 /**
  * 组装 bc 插件安装描述。
- * @param options - `mode`（link/tarball）+ `repoRoot`（dev link 用）+ `resourcesDir`（packaged）。
+ * @param options - `mode`（link/tarball）+ `repoRoot`（dev link 用）+
+ *   `resourcesDir`（packaged）+ `stagingDir`（packaged 必传：tarball 无空格中转目录）。
  * @returns 插件安装描述数组。
  */
 export function bcPluginSpecs(options) {
@@ -63,7 +70,22 @@ export function bcPluginSpecs(options) {
     const prefix = `${plugin.scopeName.replace('@', '').replace('/', '-')}-`
     const tarball = readdirSync(dir).find(file => file.startsWith(prefix) && file.endsWith('.tgz'))
     if (tarball === undefined) throw new Error(`desktop: no tarball for ${plugin.scopeName} under ${dir}`)
-    return { name: plugin.name, scopeName: plugin.scopeName, spec: join(dir, tarball) }
+    const source = join(dir, tarball)
+    // 上游 `dsh plugin add` 在 Windows 经 `spawnSync('pnpm', args, {shell: true})`
+    // 转发，参数裸拼接、无引号防护：安装路径含空格（如自选 `D:\Program Files\...`）
+    // 会把 tarball spec 拆断 → pnpm ENOENT（exit -4058）。规避：先把 tarball 物理拷
+    // 到无空格的 staging（userData/runtime/plugins，brandId 为 kebab-case）再安装。
+    // 同名同 size 视为已就位（幂等跳过）；版本变化自然换名，无需清理旧文件。
+    let spec = source
+    if (options.stagingDir !== undefined) {
+      mkdirSync(options.stagingDir, { recursive: true })
+      const target = join(options.stagingDir, tarball)
+      if (!existsSync(target) || statSync(target).size !== statSync(source).size) {
+        cpSync(source, target)
+      }
+      spec = target
+    }
+    return { name: plugin.name, scopeName: plugin.scopeName, spec }
   })
 }
 
@@ -82,7 +104,12 @@ function ensurePluginBuilt(plugin, env) {
  * @param options - mode/dshBin/childEnv/dshHome/repoRoot/resourcesDir/clearEnvUrl/runAsNode。
  */
 export function ensurePluginsReady(options) {
-  const plugins = bcPluginSpecs({ mode: options.mode, repoRoot: options.repoRoot, resourcesDir: options.resourcesDir })
+  const plugins = bcPluginSpecs({
+    mode: options.mode,
+    repoRoot: options.repoRoot,
+    resourcesDir: options.resourcesDir,
+    stagingDir: options.stagingDir,
+  })
   const nodePrefix = options.runAsNode ? ['--expose-internals', '--import', options.clearEnvUrl] : []
   for (const plugin of plugins) {
     if (options.mode === 'link') ensurePluginBuilt(plugin, options.childEnv)

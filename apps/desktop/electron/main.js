@@ -106,7 +106,10 @@ async function bootstrap() {
       ? join(resourcesDir, 'cordis.patch.yml')
       : join(REPO_ROOT, 'profiles', 'bc-agent', 'cordis.patch.yml')
 
-    // 插件就绪（dev link / packaged tarball，幂等）。
+    // 插件就绪（dev link / packaged tarball，幂等）。staging = runtime 下的
+    // plugins 目录（userData/<brandId>/runtime，brandId kebab-case 无空格）：
+    // 上游 dsh plugin add 经 shell 裸拼 pnpm 参数，含空格安装路径会拆断 spec，
+    // tarball 先物理拷到这里再装（见 launcher.bcPluginSpecs）。
     ensurePluginsReady({
       mode: isPackaged ? 'tarball' : 'link',
       dshBin,
@@ -114,6 +117,7 @@ async function bootstrap() {
       dshHome,
       repoRoot: REPO_ROOT,
       resourcesDir,
+      stagingDir: join(shims.runtimeDir, 'plugins'),
       clearEnvUrl: shims.clearEnvUrl,
       runAsNode: true,
     })
