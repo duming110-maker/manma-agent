@@ -7,10 +7,13 @@
  * 核心纪律（05-references §4.8 / ELECTRON_RUN_AS_NODE trampoline）：
  * - 所有 Node 子进程复用 Electron 二进制（process.execPath），进程内设
  *   ELECTRON_RUN_AS_NODE=1；
- * - `--import clear-env.mjs` 预加载模块在进真正 JS 入口前删除该变量，防泄漏
- *   到 dsh 派生的 pwsh/bash（否则它们会以 Electron-as-node 解释）；
  * - 加载 dsh CLI 用 `--expose-internals`（dsh CLI 需要 Node internals）；
  * - pnpm 的 npm_config_* 指向 Electron 头（原生模块在 Electron 下解析）。
+ *
+ * 变更履历：
+ * - 2026-08-31 clear-env.mjs 不再删除 ELECTRON_RUN_AS_NODE：上游目录选择
+ *   worker 依赖它以 Node 模式自 spawn（删除致 worker 退化为第二个 GUI 实例、
+ *   撞单实例锁静默退出）；详见 clearEnvironmentModule 注释。
  * @module desktop/electron/shims
  */
 
@@ -34,14 +37,35 @@ function escapeBatchSetValue(value) {
 }
 
 /**
- * clear-env.mjs 内容：遍历 env 删除 ELECTRON_RUN_AS_NODE（各子进程进 JS
- * 入口前 `--import` 预载执行）。
+ * clear-env.mjs 内容（各子进程进 JS 入口前 `--import` 预载执行）。
+ *
+ * 2026-08-31 两项职责（本文件是 bc 在 dsh 进程内的唯一合法注入点）：
+ * 1. **不再删除** `ELECTRON_RUN_AS_NODE`：上游组件以 `process.execPath` 自
+ *    spawn 并继承 `{...process.env}`，依赖该变量让 Electron 二进制以 Node
+ *    模式运行；删除会使其退化成第二个 GUI 实例（撞单实例锁静默退出）。
+ * 2. **execPath 重定向**：若应用旁存在随包分发的真实 node.exe（dist 拷入
+ *    `<exe>/resources/runtime/node.exe`），把 `process.execPath` 指过去——
+ *    上游全部"execPath 自 spawn"随之落在真实 Node 上。否则 win32 目录选择
+ *    worker 的 koffi 绑定在 Electron 运行时（abi 148）的 napi 层崩溃
+ *    （FATAL napi_get_last_error_info），表现为选目录报
+ *    "worker exited before reporting a result"。文件不存在则维持原值
+ *    （dev 形态本就是真 node）。
  */
 function clearEnvironmentModule() {
   return [
-    `for (const name of Object.keys(process.env)) {`,
-    `  if (name.toUpperCase() === '${RUN_AS_NODE}') delete process.env[name]`,
-    '}',
+    `import { existsSync } from 'node:fs'`,
+    `import { join } from 'node:path'`,
+    ``,
+    `// 真 node.exe 随包分发（dist 拷入）；本应用二进制与 resources/ 同级。`,
+    `const bundledNode = join(process.execPath, '..', 'resources', 'runtime', 'node.exe')`,
+    `if (existsSync(bundledNode)) {`,
+    `  // process.execPath 是 writable: false 的数据属性（普通赋值静默失败），`,
+    `  // 但 configurable: true，须用 defineProperty 强制重写。`,
+    `  Object.defineProperty(process, 'execPath', { value: bundledNode, writable: true, configurable: true, enumerable: true })`,
+    `}`,
+    ``,
+    `// ELECTRON_RUN_AS_NODE 刻意保留：上游 execPath 自 spawn 的子进程依赖它`,
+    `// 以 Node 模式运行；真 node 忽略该变量，故不清洗会话 shell 环境。`,
     '',
   ].join('\n')
 }

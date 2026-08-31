@@ -13,7 +13,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { DESKTOP_DIR, REPO_ROOT, readBranding } from '../src/branding.mjs'
 import { generateIcons } from './generate-icons.mjs'
 import { packPlugins } from './pack-plugins.mjs'
@@ -47,6 +47,22 @@ function writeBrandingJson(resourcesDir, brandYaml) {
   writeFileSync(join(resourcesDir, 'branding.json'), JSON.stringify(branding, null, 2), 'utf8')
 }
 
+/**
+ * 把构建机的真实 node.exe 拷入 resources/runtime（随包分发）。
+ *
+ * 为什么：上游以 `spawn(process.execPath, ...)` 自起 Node 语义子进程（如 win32
+ * 目录选择 worker 的 koffi 绑定），这些子进程若跑在 Electron-as-node 运行时
+ * 下会在 koffi 的 napi 层崩溃；真实 node.exe 则正常。clear-env.mjs 会把运行中
+ * dsh 的 process.execPath 指向这个文件（存在才指），从而上游的自 spawn 全部
+ * 落在真实 Node 上。node.exe 为静态自包含单文件（MIT），拷贝运行中的自身合法。
+ */
+function distributeNodeRuntime(resourcesDir) {
+  const dest = join(resourcesDir, 'runtime', 'node.exe')
+  mkdirSync(dirname(dest), { recursive: true })
+  cpSync(process.execPath, dest)
+  return dest
+}
+
 /** 主流程。 */
 export async function dist(argv) {
   const brandDir = resolveBrandDir(argv)
@@ -76,6 +92,8 @@ export async function dist(argv) {
   writeUninstallNsh(buildDir, branding.brandId)
   await generateIcons({ brandYaml })
   packPlugins({ brandDir })
+  const nodeRuntime = distributeNodeRuntime(resourcesDir)
+  console.log(`-> node runtime distributed: ${nodeRuntime}`)
 
   // 直接跑 electron-builder 的 JS 入口（Windows 下 .bin shim 不在 PATH，node 跑最稳）。
   // 依赖收集走 pnpm collector（env npm_config_user_agent 触发）：保留 .pnpm

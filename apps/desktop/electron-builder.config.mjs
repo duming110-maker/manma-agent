@@ -40,11 +40,18 @@ export default {
   afterPack: join(DESKTOP_DIR, 'scripts', 'after-pack.mjs'),
   electronFuses: { runAsNode: true },
   npmRebuild: false,
+  // 真 node.exe 随包分发（dist 拷入 resources/runtime）：extraResources 落在
+  // app.asar 外的 <根>/resources/runtime/node.exe（物理、路径短）。clear-env
+  // 把运行中 dsh 的 process.execPath 指向它，让上游 execPath 自 spawn 的子
+  // 进程（如 win32 目录选择 worker 的 koffi 绑定）跑在真实 Node 上。
+  // files 里排除，避免再被收进 asar/app.asar.unpacked 重复一份。
+  extraResources: [{ from: 'resources/runtime', to: 'runtime' }],
   directories: { output: 'dist', buildResources: 'build' },
   files: [
     'electron/**',
     'src/**',
     'resources/**',
+    '!resources/runtime/**',
     'build/icon.ico',
     'build/tray-icon.png',
     'package.json',
