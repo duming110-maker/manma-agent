@@ -4,6 +4,10 @@
  *
  * 用法：`pnpm run dist -- --brand branding/default`（缺省默认品牌）。
  * 产物：`apps/desktop/dist/<executableName>-<version>-x64-Setup.exe`。
+ *
+ * 变更履历：
+ * - 2026-08-31 下载镜像 fallback：补 ELECTRON_MIRROR（Electron zip 此前走默认
+ *   GitHub 直连，缓存未命中时超时失败）；builder 工具镜像改为尊重调用方已有配置。
  * @module desktop/scripts/dist
  */
 
@@ -53,8 +57,12 @@ export async function dist(argv) {
     ...process.env,
     BC_BRAND_DIR: brandDir,
     CSC_IDENTITY_AUTO_DISCOVERY: 'false',
-    // electron-builder 工具（winCodeSign/rcedit 等）GitHub 直连常超时；走国内镜像。
-    ELECTRON_BUILDER_BINARIES_MIRROR: 'https://npmmirror.com/mirrors/electron-builder-binaries/',
+    // Electron zip 与 builder 工具（winCodeSign/rcedit 等）默认从 GitHub Releases
+    // 下载，直连常超时（2026-08-31 打包实测：ETIMEDOUT github.com:443）。
+    // 仅在调用方未指定时注入 npmmirror 镜像 fallback，已有自定义镜像配置则尊重之。
+    ELECTRON_MIRROR: process.env.ELECTRON_MIRROR ?? 'https://npmmirror.com/mirrors/electron/',
+    ELECTRON_BUILDER_BINARIES_MIRROR:
+      process.env.ELECTRON_BUILDER_BINARIES_MIRROR ?? 'https://npmmirror.com/mirrors/electron-builder-binaries/',
     // 让 electron-builder 的 packageManager 环境检测命中 pnpm → 用 pnpm
     // collector（保留 .pnpm 多版本嵌套，避免 npm collector 漏收集/版本冲突）。
     npm_config_user_agent: 'pnpm/11.7.0 npm/? node/v24 pnpm/11.7.0',

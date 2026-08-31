@@ -28,7 +28,7 @@ pnpm run typecheck              # 全 workspace typecheck
 pnpm run lint                   # 全 workspace lint
 pnpm run sync:reference         # 更新 reference/ 只读镜像
 pnpm --filter desktop dev       # 起 dsh Host（叠加 bc-agent profile）
-pnpm --filter desktop dist      # Electron + NSIS 打包
+pnpm --filter desktop dist      # Electron + NSIS 打包（Electron/builder 工具下载自动走 npmmirror 镜像，可用 ELECTRON_MIRROR 覆盖）
 pnpm --filter desktop verify:installer   # 安装包静态校验
 ```
 
@@ -42,3 +42,10 @@ pnpm --filter desktop verify:installer   # 安装包静态校验
 - 无硬编码 tunable：部署可调项进 `Config`，从 cordis.yml 可改。
 - 测试描述行为，不描述正确性。
 - 文件末尾恰好一个换行。
+
+## AI 执行约定（省 token）
+
+- **局部读取**：改大文件（>300 行）前先 Grep 定位，再用 Read 的 offset/limit 只读改动点附近区段，禁止无差别整读。
+- **最小锚点编辑**：Edit 的 `old_string` 取最小唯一片段；同类多处修改用 `replace_all` 一次完成；Write 整文件仅限新建，改既有文件一律局部 Edit。
+- **任务隔离**：一个任务一个会话（或先 `/clear`），避免无关历史抬升每轮开销。
+- **探索收窄**：检索优先 `files_with_matches` 与 `head_limit`；单点查询不派子代理。
