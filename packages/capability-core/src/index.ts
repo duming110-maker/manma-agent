@@ -58,6 +58,7 @@ import {
 } from './cron.ts'
 import { KrmService, registerInjection } from './krm.ts'
 import { createMemoryTool } from './memory-tool.ts'
+import { wireSkillCatalogRefresh } from './skill-refresh.ts'
 
 /** The dedicated business RPC channel (03-architecture D3'); `/api` is reserved. */
 const EXT_CHANNEL = '/ext'
@@ -252,5 +253,10 @@ export async function apply(ctx: Context): Promise<void> {
       createSchedulerState(),
     ),
     'bc-capability-core: cron scheduler',
+  )
+  // 技能目录变化 → 浏览器端 '/' 补全缓存失效桥（不改上游；机制见模块注释）。
+  ctx.effect(
+    () => wireSkillCatalogRefresh(ctx as unknown as Parameters<typeof wireSkillCatalogRefresh>[0]),
+    'bc-capability-core: skill catalog refresh bridge',
   )
 }
