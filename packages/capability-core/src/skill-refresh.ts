@@ -18,7 +18,7 @@
  *
  * 载荷"成对真实"：优先重放本进程监听到的最近一条官方广播 (sessionId, preset)
  * （agent-presets 从会话事件流转发而来，值必真）；无记忆时用任一活跃 agent 的
- * sessionId + agentPresets.defaultId()（未切换过 preset 的会话其真实值即默认）。
+ * session.id + agentPresets.defaultId()（未切换过 preset 的会话其真实值即默认）。
  * 两者皆缺（无活跃会话）时跳过——没有会话就没有 '/' 菜单可刷。
  *
  * 变更履历：
@@ -40,7 +40,7 @@ interface BridgeContext {
   on(name: string, listener: (...args: unknown[]) => void): unknown
   emit(name: string, ...args: unknown[]): unknown
   get(name: string): unknown
-  agents: { list(): Array<{ sessionId: string }> }
+  agents: { list(): Array<{ session: { id: string } }> }
   logger?: { debug(message: string): void }
 }
 
@@ -79,8 +79,8 @@ export function wireSkillCatalogRefresh(ctx: BridgeContext): () => void {
       const presets = ctx.get('agentPresets') as { defaultId?: string } | undefined
       const defaultId = presets?.defaultId
       if (typeof defaultId !== 'string' || defaultId === '') return
-      ctx.logger?.debug(`skills/change → replaying agent-preset/selected (${agent.sessionId}, ${defaultId})`)
-      ctx.emit('agent-preset/selected', agent.sessionId, defaultId)
+      ctx.logger?.debug(`skills/change → replaying agent-preset/selected (${agent.session.id}, ${defaultId})`)
+      ctx.emit('agent-preset/selected', agent.session.id, defaultId)
     }, DEBOUNCE_MS)
   })
 
