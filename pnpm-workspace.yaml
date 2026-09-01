@@ -32,6 +32,8 @@ allowBuilds:
 # execPath 兄弟文件解析 spawn-helper，避免打包后 app.asar 字符串替换失效。
 patchedDependencies:
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch
+  # 工作区「...」菜单新增「创建新任务」「在资源管理器中打开」（仿 TraeWork，上游零修改）。
+  '@deepseek-ai/dsh-client-ui-workspace@0.1.0-rc.7': patches/@deepseek-ai+dsh-client-ui-workspace@0.1.0-rc.7.patch
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.7'
   - '@deepseek-ai/dsh-agent-instructions@0.1.0-rc.7'

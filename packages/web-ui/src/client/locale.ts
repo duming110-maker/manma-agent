@@ -60,6 +60,8 @@ export const zh = {
   'header.renameHint': '双击重命名',
   'header.renamePlaceholder': '输入会话标题…',
   'header.renameFailed': '重命名失败',
+  'header.open': '打开',
+  'header.openExplorer': '文件资源管理器',
 
   // Skills page.
   'skills.subtitle': '安装和管理技能，为智能体解锁业务能力',
@@ -310,6 +312,8 @@ export const en = {
   'header.renameHint': 'Double-click to rename',
   'header.renamePlaceholder': 'Enter a session title…',
   'header.renameFailed': 'Rename failed',
+  'header.open': 'Open',
+  'header.openExplorer': 'File Explorer',
 
   // Skills page.
   'skills.subtitle': 'Install and manage skills to unlock capabilities for the agent',

@@ -1,0 +1,94 @@
+diff --git a/lib/client.js b/lib/client.js
+index ec779d5..f3a54f7 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -456,6 +456,14 @@ window.__ModuleLoader__.load({
+ 			const active = group.expanded && group.containsCurrent;
+ 			const [menuOpen, setMenuOpen] = (0, react.useState)(false);
+ 			const workspaceMenuItems = [{
++				id: "newTask",
++				label: t("menu.newTask"),
++				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconPlusOutline16, {})
++			}, {
++				id: "openFolder",
++				label: t("menu.openFolder"),
++				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconFolderOpen16, {})
++			}, {
+ 				id: "rename",
+ 				label: t("rename"),
+ 				icon: (0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconEditOutline16, {})
+@@ -503,7 +511,8 @@ window.__ModuleLoader__.load({
+ 							items: workspaceMenuItems,
+ 							onSelect: (id) => {
+ 								setMenuOpen(false);
+-								/* v8 ignore next -- workspaceMenuItems carries exactly these two rows today. */
++								if (id === "newTask") { onCreate(); return; }
++								if (id === "openFolder") { actions.openFolder(); return; }
+ 								if (id !== "rename" && id !== "delete") return;
+ 								if (id === "rename") actions.rename();
+ 								else actions.delete();
+@@ -1196,7 +1205,7 @@ window.__ModuleLoader__.load({
+ 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+ 		}
+ 		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
+-		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
++		function SessionTree({ useSessions, startSession, open, openFolder, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, t }) {
+ 			const list = useSessions((s) => s);
+ 			const current = list.current;
+ 			const [expandedSessionGroups, setExpandedSessionGroups] = (0, react.useState)([]);
+@@ -1396,6 +1405,10 @@ window.__ModuleLoader__.load({
+ 											delete: () => {
+ 												/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
+ 												if (group.workspaceId !== void 0) onDeleteRequest(group.workspaceId, group.label);
++											},
++											openFolder: () => {
++												/* v8 ignore next -- narrowing guard: the actions object exists only for real-workspace groups. */
++												if (group.workspaceId !== void 0) openFolder(group.cwd);
+ 											}
+ 										}
+ 									}),
+@@ -1644,7 +1657,7 @@ window.__ModuleLoader__.load({
+ 		* @param props - composed slot props (shell owner share + store + injected actions).
+ 		* @returns the region element tree.
+ 		*/
+-		function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, renderSlot, t }) {
++		function WorkspaceBrowser({ wide, expandSidebar, useSessions, useWorkspaces, useStore, actions, startSession, open, openFolder, renameSession, forkSession, renameWorkspace, deleteWorkspace, insertWorkspaceBefore, archiveSession, insertSessionBefore, createWorkspace, searchSessions, searchResultLimit, useDirectoryFlow, renderSlot, t }) {
+ 			const workspaces = useWorkspaces((state) => state.items);
+ 			const workspacePhase = useWorkspaces((state) => state.phase);
+ 			const archivedSessionIds = useWorkspaces((state) => state.archivedSessionIds);
+@@ -2019,6 +2032,7 @@ window.__ModuleLoader__.load({
+ 							archivedSessionIds,
+ 							startSession,
+ 							open,
++							openFolder,
+ 							insertWorkspaceBefore,
+ 							insertSessionBefore,
+ 							orderBy,
+@@ -2207,6 +2221,8 @@ window.__ModuleLoader__.load({
+ 			"search.noMatches": "无匹配会话",
+ 			"search.hasMore": "仅显示前 {n} 条结果，请缩小搜索范围。",
+ 			"menu.addWorkspace": "添加工作区…",
++			"menu.newTask": "创建新任务",
++			"menu.openFolder": "在资源管理器中打开",
+ 			"picker.loading": "正在加载工作区…",
+ 			"conflict.named": "已存在名为“{name}”的工作区。",
+ 			"folderError.title": "无法打开文件夹",
+@@ -2272,6 +2288,8 @@ window.__ModuleLoader__.load({
+ 			"search.noMatches": "No matching sessions",
+ 			"search.hasMore": "Showing the first {n} results. Narrow your search.",
+ 			"menu.addWorkspace": "Add workspace…",
++			"menu.newTask": "New Task",
++			"menu.openFolder": "Open in Explorer",
+ 			"picker.loading": "Loading workspaces…",
+ 			"conflict.named": "A workspace named “{name}” already exists.",
+ 			"folderError.title": "Couldn’t open folder",
+@@ -2357,6 +2375,9 @@ window.__ModuleLoader__.load({
+ 				open: (sessionId) => {
+ 					ctx.sessions.open(sessionId);
+ 				},
++				openFolder: (path) => {
++					void ctx.workspaces.openPath(path);
++				},
+ 				searchSessions,
+ 				searchResultLimit: ctx.sessions.searchResultLimit,
+ 				renameSession: async (sessionId, title) => {

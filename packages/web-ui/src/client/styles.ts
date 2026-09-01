@@ -653,6 +653,123 @@ body[data-ds-dark-theme] .bc-web-ui-frame {
   background: var(--bc-fill-hover-strong);
   color: var(--bc-text-secondary);
 }
+/* The「打开」split button (default open-with method + chooser). The wrapper is
+   the positioning + outside-click containment scope; the menu is an absolute
+   popover riding just under the 44px header. */
+.bc-web-ui-session-header-open {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.bc-web-ui-session-header-open-button {
+  display: flex;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 0 8px 0 10px;
+  border: none;
+  border-radius: 6px 0 0 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--bc-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.bc-web-ui-session-header-open-button:hover:not(:disabled) {
+  background: var(--bc-fill-hover-strong);
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-session-header-open-button:disabled {
+  color: var(--bc-text-muted);
+  cursor: default;
+}
+.bc-web-ui-session-header-open-button svg {
+  flex-shrink: 0;
+}
+.bc-web-ui-session-header-open-toggle {
+  display: flex;
+  height: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0 5px;
+  border: none;
+  border-left: 1px solid var(--bc-border);
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  color: var(--bc-text-tertiary);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.bc-web-ui-session-header-open-toggle:hover,
+.bc-web-ui-session-header-open-toggle[aria-expanded="true"] {
+  background: var(--bc-fill-hover-strong);
+  color: var(--bc-text-primary);
+}
+.bc-web-ui-session-header-open-toggle-caret {
+  transition: transform 0.15s;
+}
+.bc-web-ui-session-header-open-toggle[aria-expanded="true"] .bc-web-ui-session-header-open-toggle-caret {
+  transform: rotate(180deg);
+}
+.bc-web-ui-session-header-open-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10001;
+  display: flex;
+  min-width: 184px;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--bc-border);
+  border-radius: 10px;
+  background: var(--bc-bg-card);
+  box-shadow: var(--bc-shadow-lg);
+}
+.bc-web-ui-session-header-open-item {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  text-align: left;
+  color: var(--bc-text-primary);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.bc-web-ui-session-header-open-item:hover { background: var(--bc-fill-hover); }
+.bc-web-ui-session-header-open-item svg {
+  flex-shrink: 0;
+  color: var(--bc-text-tertiary);
+}
+/* The default-method checkmark rides the item's right edge and keeps the
+   primary color (beats the tertiary svg rule via higher specificity). */
+.bc-web-ui-session-header-open-item .bc-web-ui-session-header-open-check {
+  margin-left: auto;
+  color: var(--bc-color-primary);
+}
+.bc-web-ui-session-header-open-sep {
+  height: 1px;
+  margin: 4px 8px;
+  flex-shrink: 0;
+  background: var(--bc-border);
+}
 
 /* ===== Nav pages (P2-e: skills/cron/settings skeletons) =====
    The shared page scaffold (PageScaffold.tsx): frontend-user page geometry —

@@ -123,6 +123,30 @@ export interface UpstreamFace {
    */
   pickWorkspaceDirectory(): Promise<string | null>
   /**
+   * Open a local filesystem path with the host's default application
+   * (IWorkspaces.openPath) — the "在资源管理器中打开" reveal action behind the
+   * conversation header's 「打开」 menu and the workspace list's "..." menu.
+   * @param path - absolute directory to open.
+   */
+  openPath(path: string): Promise<void>
+  /**
+   * Enumerate installed code editors plus the persisted default "open with"
+   * method (host `scene.editors.list`). Editors were detected once at host
+   * startup; empty when none of the known editor install roots exist.
+   */
+  listOpenWithOptions(): Promise<OpenWithState>
+  /**
+   * Persist the default "open with" method (host `scene.default.set`).
+   * @param id - `'explorer'` or an editor id from {@link listOpenWithOptions}.
+   */
+  setDefaultOpen(id: string): Promise<void>
+  /**
+   * Launch one detected editor on a directory (host `scene.editor.open`).
+   * @param input - the editor id (a value from listOpenWithOptions) + the
+   * absolute directory to open.
+   */
+  openEditor(input: { id: string; path: string }): Promise<void>
+  /**
    * Rename a session — the documented per-session verb ISession.rename,
    * reached through the ISessions binding (the official ui-workspace
    * renameSession wrapper's exact row→session-face hop). An explicit user
@@ -354,6 +378,24 @@ export interface UpstreamMarketSkill {
   source: { type: 'github'; repo: string; ref: string; path: string }
   tags: string[] | undefined
   license: string | undefined
+}
+
+/** One locally installed code editor (host `scene.editors.list` echo). */
+export interface UpstreamEditor {
+  /** Stable editor id (vscode / cursor / trae / …). */
+  id: string
+  /** Display name. */
+  name: string
+  /** Absolute executable path (host-resolved; not rendered, sent back on open). */
+  path: string
+}
+
+/** The header "open with" state: install rosters + the persisted default. */
+export interface OpenWithState {
+  /** Detected editors (startup-cached on the host). */
+  editors: readonly UpstreamEditor[]
+  /** The default open method id: `'explorer'` or an editor id. */
+  defaultOpen: string
 }
 
 /** One selectable model option flattened from the host model catalog. */
@@ -658,6 +700,12 @@ export interface UpstreamSessionHeader {
    * where the badge falls back to the cwd basename.
    */
   workspaceTitle: string | undefined
+  /**
+   * Owning workspace's canonical directory path (workspace.account
+   * membership); undefined when the session is ungrouped. The「打开」menu's
+   * "在资源管理器中打开" target, falling back to cwd when absent.
+   */
+  workspacePath: string | undefined
 }
 
 /**
@@ -684,6 +732,7 @@ export function projectSessionHeader(
     blank: summary.blank,
     cwd: summary.cwd,
     workspaceTitle: workspace?.title,
+    workspacePath: workspace?.path,
   }
 }
 
@@ -722,6 +771,21 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
       })
     },
     pickWorkspaceDirectory: () => workspaces.pickDirectory(),
+    openPath: async (path) => { await workspaces.openPath(path) },
+    listOpenWithOptions: async () => {
+      const result = await extCall('/ext', 'scene.editors.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: scene.editors.list rejected: ${result.error.code}: ${result.error.message}`)
+      const value = result.value as { editors: UpstreamEditor[]; defaultOpen: string }
+      return { editors: value.editors, defaultOpen: value.defaultOpen }
+    },
+    setDefaultOpen: async (id) => {
+      const result = await extCall('/ext', 'scene.default.set', { id })
+      if (!result.ok) throw new Error(`bc-web-ui: scene.default.set rejected: ${result.error.code}: ${result.error.message}`)
+    },
+    openEditor: async (input) => {
+      const result = await extCall('/ext', 'scene.editor.open', input)
+      if (!result.ok) throw new Error(`bc-web-ui: scene.editor.open rejected: ${result.error.code}: ${result.error.message}`)
+    },
     newSession: () => { workspaces.startSession() },
     renameSession: async (sessionId, title) => {
       // Row → session-face hop: rename is a per-session verb (ISession), not

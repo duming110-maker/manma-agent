@@ -21,6 +21,9 @@
  * - `cron.tasks.delete`    remove one stored task
  * - `cron.tasks.run`       queue a manual run (real execution, not a stub)
  * - `cron.runs.list`       read the run-history store
+ * - `scene.editors.list`   enumerate installed editors + the default open method
+ * - `scene.default.set`    persist the default "open with" method
+ * - `scene.editor.open`    launch one editor on a directory
  * - `krm.rules.list`       list stored behavior rules (bc-krm domain)
  * - `krm.rules.create`     append a behavior rule
  * - `krm.rules.update`     patch one stored rule (edit / enable toggle)
@@ -59,6 +62,7 @@ import {
 import { KrmService, registerInjection } from './krm.ts'
 import { createMemoryTool } from './memory-tool.ts'
 import { wireSkillCatalogRefresh } from './skill-refresh.ts'
+import { listInstalledEditors, openEditor, detectEditors, readDefaultOpen, setDefaultOpen } from './scene-editor.ts'
 
 /** The dedicated business RPC channel (03-architecture D3'); `/api` is reserved. */
 const EXT_CHANNEL = '/ext'
@@ -174,6 +178,13 @@ function createHandler(ctx: Context, krm: KrmService): ConnectionRpcHandler {
       }
       case 'cron.runs.list':
         return listCronRuns() as never
+      // scene editor (detect local IDEs + remember the default open method)
+      case 'scene.editors.list':
+        return { ok: true, value: { editors: listInstalledEditors(), defaultOpen: readDefaultOpen() } } as never
+      case 'scene.default.set':
+        return setDefaultOpen(payload) as never
+      case 'scene.editor.open':
+        return openEditor(payload) as never
       // rules + memories (P3a capability-krm)
       case 'krm.rules.list':
         return krm.listRules() as never
@@ -210,6 +221,10 @@ function createHandler(ctx: Context, krm: KrmService): ConnectionRpcHandler {
  * @param ctx - owning plugin context.
  */
 export async function apply(ctx: Context): Promise<void> {
+  // Detect installed editors once at startup; the roster is cached for the
+  // process lifetime (re-scanned on next launch).
+  detectEditors()
+
   const krm = new KrmService(ctx, { workspaceRegistry: ctx.workspaceRegistry as WorkspaceRegistry })
   await krm.init()
 
