@@ -18,12 +18,28 @@
  *   Windows 转发 pnpm 用 `shell: true` 裸拼参数，tarball spec 被空格拆断；现
  *   tarball 模式先物理拷到无空格 staging（`stagingDir`，= userData/runtime/plugins）
  *   再安装。
+ * - 2026-09-01 修复 packaged 重打包后插件不更新：0.1.0 版本号跨构建不变，但
+ *   每次 `dist` 出的 tarball 字节不同，旧的「marker 存在即跳过」让 exe 永远用
+ *   首次安装的旧插件（典型症状：dev 的「打开」按钮可用、exe 不生效）。现改为
+ *   对 tarball 做 sha256 内容指纹，指纹不匹配即自动重装；staging 拷贝也改为按
+ *   内容指纹判定，保证安装的是最新字节。
+ * - 2026-09-02 修复 `--force` 仍不落地：指纹重装走的 `dsh plugin add --force`
+ *   （= pnpm add file:tarball --force）在 hoisted 布局下对同版本 tarball 内容变化
+ *   只刷新 lockfile/.modules.yaml/.pnpm 元数据，不覆盖 node_modules 实体目录，
+ *   导致 exe 里编辑器「打开」点后无反应（dev 正常）。重装前先删旧包实体目录，
+ *   强制 pnpm 重新解包落地。
+ * - 2026-09-02 修复指纹比对前导斜杠：tarball 侧切片用 `package/lib`（无尾斜杠）
+ *   得到 `/client.js`，installed 侧 walk 得到 `client.js`，两侧口径不一致导致
+ *   「已装最新」永远判 false——packaged 每次启动都删目录重装、装完仍抛
+ *   "lib content still stale after install"（启动即弹错）。前缀改 `package/lib/`。
  * @module desktop/src/launcher
  */
 
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { gunzipSync } from 'node:zlib'
 import { dirname, join } from 'node:path'
 import { createLogSink, scanPort } from './port-parse.mjs'
 
@@ -44,9 +60,86 @@ const BC_PLUGINS = [
   { name: 'file-open', scopeName: '@bc-agent/file-open' },
 ]
 
+/** pnpm pack 的 tarball 顶层固定为 `package/`，库产物都在 `package/lib/`。
+ * 含尾部斜杠：切片后相对路径与 installedLibFingerprint 的 walk 口径一致
+ *（无前导斜杠；用 `package/lib` 会切出 `/client.js`，指纹永远不相等——
+ * 2026-09-02 packaged 启动即报 "lib content still stale after install" 的根因）。 */
+const PACK_LIB_PREFIX = 'package/lib/'
+
 /** profile 里已安装的幂等标记路径。 */
 export function pluginInstalledMarker(dshHome, scopeName) {
   return join(dshHome, 'profiles', 'web', 'node_modules', scopeName, 'package.json')
+}
+
+/** 内容指纹 = tarball 的升级身份：0.1.0 版本号跨构建不变，但每次 `dist` 出的
+ * 字节可能不同，所以「已装最新」必须按内容哈希判定，而非 marker 的单纯存在。 */
+function tarballFingerprint(filePath) {
+  const hash = createHash('sha256')
+  hash.update(readFileSync(filePath))
+  return hash.digest('hex')
+}
+
+/** 从 gz+tar 的 512 字节块头里读一个定长字段（NUL 结尾字符串）。 */
+function tarString(buf, start, len) {
+  let end = start
+  while (end < start + len && buf[end] !== 0) end++
+  return buf.subarray(start, end).toString('utf8')
+}
+
+/**
+ * 求 gz+tar 包内 `prefix` 目录下所有普通文件的规范摘要（相对路径升序 + 长度 + 字节）。
+ * 作为「已装实体内容 == tarball 内容」的直接校验依据——取代会被 pnpm hoisted 布局
+ * 污染的独立指纹文件。
+ */
+function tarballDirFingerprint(spec, prefix) {
+  const tar = gunzipSync(readFileSync(spec))
+  const hash = createHash('sha256')
+  const entries = []
+  let offset = 0
+  while (offset + 512 <= tar.length) {
+    const block = tar.subarray(offset, offset + 512)
+    if (block.every(byte => byte === 0)) break // 归档结束：两段全零块
+    const name = tarString(block, 0, 100)
+    const sizeText = tarString(block, 124, 12).replace(/\0+$/, '').trim()
+    const size = parseInt(sizeText || '0', 8) || 0
+    const typeflag = String.fromCharCode(block[156])
+    if ((typeflag === '0' || typeflag === '\0') && name.startsWith(prefix) && name.length > prefix.length) {
+      entries.push({ rel: name.slice(prefix.length), data: tar.subarray(offset + 512, offset + 512 + size) })
+    }
+    offset += 512 + Math.ceil(size / 512) * 512
+  }
+  entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
+  for (const e of entries) {
+    hash.update(e.rel); hash.update('\0')
+    hash.update(String(e.data.length)); hash.update('\0')
+    hash.update(e.data)
+  }
+  return hash.digest('hex')
+}
+
+/** 已装包 `lib/` 目录的规范摘要（与 tarballDirFingerprint 同口径）；无 lib 返回 undefined。 */
+function installedLibFingerprint(pkgDir) {
+  const root = join(pkgDir, 'lib')
+  if (!existsSync(root)) return undefined
+  const hash = createHash('sha256')
+  const files = []
+  const walk = (dir, rel) => {
+    const entries = readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    for (const e of entries) {
+      const p = join(dir, e.name)
+      const r = rel === '' ? e.name : `${rel}/${e.name}`
+      if (e.isDirectory()) walk(p, r)
+      else if (e.isFile()) files.push({ rel: r, data: readFileSync(p) })
+    }
+  }
+  walk(root, '')
+  for (const f of files) {
+    hash.update(f.rel); hash.update('\0')
+    hash.update(String(f.data.length)); hash.update('\0')
+    hash.update(f.data)
+  }
+  return hash.digest('hex')
 }
 
 /**
@@ -71,21 +164,24 @@ export function bcPluginSpecs(options) {
     const tarball = readdirSync(dir).find(file => file.startsWith(prefix) && file.endsWith('.tgz'))
     if (tarball === undefined) throw new Error(`desktop: no tarball for ${plugin.scopeName} under ${dir}`)
     const source = join(dir, tarball)
+    // 内容指纹 = 升级身份：0.1.0 版本号不变，但每次 dist 出的字节可能不同；用
+    // 哈希（而非 marker 存在性）判定「是否已装最新」，否则重打包后 exe 永远用旧插件。
+    const fingerprint = tarballFingerprint(source)
     // 上游 `dsh plugin add` 在 Windows 经 `spawnSync('pnpm', args, {shell: true})`
     // 转发，参数裸拼接、无引号防护：安装路径含空格（如自选 `D:\Program Files\...`）
     // 会把 tarball spec 拆断 → pnpm ENOENT（exit -4058）。规避：先把 tarball 物理拷
     // 到无空格的 staging（userData/runtime/plugins，brandId 为 kebab-case）再安装。
-    // 同名同 size 视为已就位（幂等跳过）；版本变化自然换名，无需清理旧文件。
+    // 按内容指纹（非 size）判定 staging 是否已就位，确保安装的就是最新字节。
     let spec = source
     if (options.stagingDir !== undefined) {
       mkdirSync(options.stagingDir, { recursive: true })
       const target = join(options.stagingDir, tarball)
-      if (!existsSync(target) || statSync(target).size !== statSync(source).size) {
+      if (!existsSync(target) || tarballFingerprint(target) !== fingerprint) {
         cpSync(source, target)
       }
       spec = target
     }
-    return { name: plugin.name, scopeName: plugin.scopeName, spec }
+    return { name: plugin.name, scopeName: plugin.scopeName, spec, fingerprint }
   })
 }
 
@@ -111,18 +207,44 @@ export function ensurePluginsReady(options) {
     stagingDir: options.stagingDir,
   })
   const nodePrefix = options.runAsNode ? ['--expose-internals', '--import', options.clearEnvUrl] : []
+  const profileNodeModules = join(options.dshHome, 'profiles', 'web', 'node_modules')
   for (const plugin of plugins) {
-    if (options.mode === 'link') ensurePluginBuilt(plugin, options.childEnv)
     const marker = pluginInstalledMarker(options.dshHome, plugin.scopeName)
-    if (existsSync(marker)) continue
+    const pkgDir = join(profileNodeModules, ...plugin.scopeName.split('/'))
+    let wasInstalled = false
+
+    if (options.mode === 'link') {
+      ensurePluginBuilt(plugin, options.childEnv)
+      if (existsSync(marker)) continue
+    } else {
+      // tarball 模式：直接比对「已装 lib/ 实体内容」与「tarball lib/ 内容」，一致才跳过。
+      // 取代旧的 marker/指纹文件判定——pnpm hoisted 布局对同版本 file: tarball 内容变化
+      // 只刷新元数据不落地实体，独立指纹文件会「显示最新、实体陈旧」（poisoned state），
+      // 导致 dev「打开」正常而 exe 无效。内容比对直接看实体，陈旧即删目录强制重装（自愈）。
+      const expected = tarballDirFingerprint(plugin.spec, PACK_LIB_PREFIX)
+      const actual = installedLibFingerprint(pkgDir)
+      if (actual !== undefined && actual === expected) continue
+      wasInstalled = actual !== undefined
+      if (wasInstalled) rmSync(pkgDir, { recursive: true, force: true })
+    }
+
+    const addArgs = ['plugin', '--profile', 'web', 'add', plugin.spec]
+    // 同一 0.1.0 版本号下 pnpm 可能命中缓存、不重读本地 tarball 内容：已装过的补 --force。
+    if (wasInstalled) addArgs.push('--force')
     process.stderr.write(`desktop: installing ${plugin.scopeName} into the 'web' profile (${options.mode})\n`)
     const result = spawnSync(
       process.execPath,
-      [...nodePrefix, options.dshBin, 'plugin', '--profile', 'web', 'add', plugin.spec],
+      [...nodePrefix, options.dshBin, ...addArgs],
       { env: options.childEnv, stdio: 'inherit' },
     )
     if (result.status !== 0) throw new Error(`desktop: dsh plugin add failed for ${plugin.scopeName} (exit ${String(result.status)})`)
     if (!existsSync(marker)) throw new Error(`desktop: ${plugin.scopeName} still unresolvable after install (${marker})`)
+    if (options.mode === 'tarball') {
+      const after = installedLibFingerprint(pkgDir)
+      if (after !== tarballDirFingerprint(plugin.spec, PACK_LIB_PREFIX)) {
+        throw new Error(`desktop: ${plugin.scopeName} lib content still stale after install`)
+      }
+    }
   }
 }
 

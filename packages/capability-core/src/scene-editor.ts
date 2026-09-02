@@ -178,7 +178,15 @@ export function setDefaultOpen(payload: unknown):
 
 /** Fire-and-forget launch of a full `.exe` path (survives the host; errors logged). */
 function launchDetached(command: string, args: readonly string[]): void {
-  const child = spawn(command, [...args], { detached: true, stdio: 'ignore', windowsHide: true })
+  // The packaged host runs dsh under the ELECTRON_RUN_AS_NODE trampoline and
+  // deliberately keeps that variable (shims.mjs) for its own self-spawning
+  // workers — but every editor here is an Electron app (VS Code / Cursor /
+  // Trae / Windsurf), and inheriting ELECTRON_RUN_AS_NODE forces them into
+  // headless Node mode so no window ever appears (dev works because the plain
+  // Node dev path never sets it). Strip it for the launched editor only.
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  const child = spawn(command, [...args], { detached: true, stdio: 'ignore', env })
   child.once('error', (error: NodeJS.ErrnoException) => {
     console.warn(`bc-capability-core: failed to launch ${command}: ${error.message}`)
   })
