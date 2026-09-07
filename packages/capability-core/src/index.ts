@@ -229,7 +229,7 @@ export async function apply(ctx: Context): Promise<void> {
   await krm.init()
 
   ctx.effect(
-    () => ctx.connection.rpc.handle(EXT_CHANNEL, createHandler(ctx, krm), { authority: 'loopback' }),
+    () => ctx.connection.rpc.handle(EXT_CHANNEL, createHandler(ctx, krm)),
     'bc-capability-core: /ext rpc channel',
   )
   ctx.effect(

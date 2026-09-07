@@ -23,11 +23,14 @@
  * plus the documented runtime `/client` exemption — the browser bundle purity
  * rule; everything else arrives type-only.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
 // Type-only: pulls the ctx.theme / ctx.locale Context merges and the
 // ThemeSnapshot wire type.
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls ctx.slots / ctx.uiRenderer (renderer-owned SlotRegistry)
+// plus the built-in 'root' SlotMap declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createUpstreamFace } from '../adapters/upstream.ts'
 import { BcShellFrame } from './BcShellFrame.tsx'
 import { createBcLayoutFace, type BcLayoutFace } from './layout.ts'
@@ -121,8 +124,8 @@ export interface BcSettingsSectionOwnerProps {
   close: () => void
 }
 
-/** Services required by the shell plugin (ui-layout's set + the official data services + the locale registry + the wire root). */
-export const inject = ['slots', 'theme', 'sessions', 'workspaces', 'connection', 'locale']
+/** Services required by the shell plugin (ui-layout's set + the official data services + the locale registry + the wire root + the remote namespaces the adapter reads). */
+export const inject = ['slots', 'theme', 'sessions', 'workspaces', 'connection', 'locale', 'remote', 'remote.session', 'remote.skills', 'remote.directoryPicker']
 
 /** Dictionary namespace owned by this plugin (the whole self-built copy surface; zh/en pair lives in ./locale.ts). */
 const BC_NS = 'bc'
@@ -144,7 +147,7 @@ const BC_NS = 'bc'
  * useSessions/useWorkspaces feed hooks arrive as framework props.
  * @param ctx - client root context.
  */
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(BC_NS, { zh, en }), 'bc-web-ui: dictionaries')
 
   const layout: BcLayoutFace = createBcLayoutFace()

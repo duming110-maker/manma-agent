@@ -372,7 +372,7 @@ export async function executeTask(host: CronHostServices, task: CronTask, run: C
     const prompt = task.prompt !== '' ? task.prompt : task.description
     agent.followup(userText(prompt))
     await agent.whenIdle()
-    const reason = lastTurnReason(agent.session.events)
+    const reason = lastTurnReason(agent.session.snapshotEvents())
     const ok = reason === undefined || reason.kind === 'completed'
     patchRun(run.id, {
       status: ok ? 'success' : 'failed',

@@ -62,11 +62,11 @@
  * HostObservable into a useLocale selector hook; the render-side refresh
  * rides the snapshot revision, the same signal behind the `t` seat).
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import type {
-  ISessions, IWorkspaces, SessionId, SessionListState, SessionSummary, WorkspaceId,
-  WorkspaceListState,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context } from '@deepseek-ai/cordis'
+import type { ISessions, SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
 import type { HostObservable, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the ctx.locale Context merge (the dsh-client-locale
 // service face); cross-plugin collaboration goes through the service, never a
@@ -84,7 +84,7 @@ export type UpstreamFeedProps = {
   /** Live session-list feed (rows + current selection). */
   useSessions: SnapshotSelectorHook<SessionListState>
   /** Live workspace-list feed (rows + registry-global archive set). */
-  useWorkspaces: SnapshotSelectorHook<WorkspaceListState>
+  useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>
 }
 
 /**
@@ -282,12 +282,18 @@ export interface UpstreamFace {
 
 /**
  * The registration's full inject-factory return: the action face plus the
- * reserved hooks compartment (the render machinery binds the locale source
- * into a useLocale selector hook — the compartment never reaches a component
- * as a plain prop).
+ * reserved hooks compartment (the render machinery binds each source into a
+ * `use<Name>` selector hook — the compartment never reaches a component as a
+ * plain prop). `sessions`/`workspaces` re-export the official live feeds that
+ * 0.1.2 no longer delivers through GlobalStandardProps; the shell frame reads
+ * them as `useSessions`/`useWorkspaces` selector hooks.
  */
 export type UpstreamInjectFace = UpstreamFace & {
-  hooks: { locale: HostObservable<UpstreamLocaleSnapshot> }
+  hooks: {
+    locale: HostObservable<UpstreamLocaleSnapshot>
+    sessions: HostObservable<SessionListState>
+    workspaces: HostObservable<WorkspaceSnapshot>
+  }
 }
 
 /**
@@ -468,39 +474,40 @@ type UpstreamExtCall = (channel: '/ext', endpoint: string, payload: unknown) => 
 >
 
 /**
- * Structural view of the official connection service's skills face (iron rule
- * 2: the adapter names the official wire shapes; the carrier package is not a
- * dependency, so the face is described by shape — the ui-skill `ctx.get(
- * 'connection') as …` precedent — rather than by type-import).
+ * Structural view of the remote gateway's `skills` namespace (iron rule 2:
+ * the adapter names the official wire shapes; the carrier package is not a
+ * dependency). The typert Remote returns a flat `{ ok, value }` / `{ ok, error }`
+ * result, no rpcId envelope.
  */
-interface UpstreamSkillsWireFace {
-  /**
-   * The `skill.list` unary call, payload-direct form: the carrier mints the
-   * rpcId, wraps the envelope, and parses the value schema.
-   * @param payload - the session address (mandatory).
-   * @param signal - optional cancellation (unused by this shell's page fetch).
-   */
-  list(payload: { sessionId: SessionId }, signal?: AbortSignal): Promise<{
-    rpcId: unknown
-    result:
-      | { ok: true; value: { skills: readonly { name: string; description: string; whenToUse?: string; modelInvocable: boolean }[] } }
-      | { ok: false; error: { code: string; message: string } }
-  }>
+interface UpstreamSkillsRemoteFace {
+  list(payload: { sessionId: SessionId }, signal?: AbortSignal): Promise<
+    | { ok: true; value: { skills: readonly { name: string; description: string; whenToUse?: string; modelInvocable: boolean }[] } }
+    | { ok: false; error: { code: string; message: string } }
+  >
 }
 
 /**
- * The `llm.models` unary call, payload-direct form — the session-independent
- * model catalog over every registered provider route (the same groups as
- * `session.models` without a per-session selection). Structural per the
- * adapter regime; the carrier package is not a dependency.
+ * The remote gateway's `session` namespace: the session-independent model
+ * catalog (`session.modelCatalog`) plus the native workspace-path opener
+ * (`session.openWorkspacePath`). Structural per the adapter regime.
  */
-interface UpstreamLlmWireFace {
-  models(payload: Record<string, never>, signal?: AbortSignal): Promise<{
-    rpcId: unknown
-    result:
-      | { ok: true; value: { groups: readonly UpstreamModelGroup[]; failures: readonly { id: string; name: string; message: string }[] } }
-      | { ok: false; error: { code: string; message: string } }
-  }>
+interface UpstreamSessionRemoteFace {
+  modelCatalog(): Promise<
+    | { ok: true; value: { groups: readonly UpstreamModelGroup[] } }
+    | { ok: false; error: { code: string; message: string } }
+  >
+  openWorkspacePath(payload: { path: string }, signal?: AbortSignal): Promise<
+    | { ok: true; value: { opened: true } }
+    | { ok: false; error: { code: string; message: string } }
+  >
+}
+
+/** The remote gateway's `directoryPicker` namespace. */
+interface UpstreamDirectoryPickerRemoteFace {
+  pick(signal?: AbortSignal): Promise<
+    | { ok: true; value: string | null }
+    | { ok: false; error: { code: string; message: string } }
+  >
 }
 
 /** One provider group of the host model catalog. */
@@ -582,7 +589,7 @@ function toRow(summary: SessionSummary): UpstreamSessionRow {
  * @returns the sidebar data (loading flag + groups).
  */
 export function projectSidebarData(
-  workspaces: WorkspaceListState, sessions: SessionListState,
+  workspaces: WorkspaceSnapshot, sessions: SessionListState,
 ): UpstreamSidebarData {
   const archived = new Set(workspaces.archivedSessionIds)
   const groups: UpstreamWorkspaceGroup[] = []
@@ -606,7 +613,7 @@ export function projectSidebarData(
     .sort(byRecency)
     .map(toRow)
   if (stray.length > 0) groups.push({ key: '', label: '', sessions: stray })
-  return { loading: !workspaces.baselinesReady, groups }
+  return { loading: workspaces.phase !== 'ready', groups }
 }
 
 /**
@@ -670,12 +677,23 @@ export interface UpstreamWorkspaceOptions {
  * @returns the selectable options (loading flag + rows + preselect hint).
  */
 export function projectWorkspaceOptions(
-  workspaces: WorkspaceListState,
+  workspaces: WorkspaceSnapshot,
 ): UpstreamWorkspaceOptions {
+  // The snapshot no longer carries `recentWorkspaceId` (0.1.2 dropped it); the
+  // welcome dropdown's preselect is derived from the newest workspace row.
+  let recentId: WorkspaceId | undefined
+  let recentTime = Number.NEGATIVE_INFINITY
+  for (const item of workspaces.items) {
+    const time = Date.parse(item.updatedAt)
+    if (recentId === undefined || time > recentTime) {
+      recentId = item.workspaceId
+      recentTime = time
+    }
+  }
   return {
-    loading: !workspaces.baselinesReady,
+    loading: workspaces.phase !== 'ready',
     items: workspaces.items.map(item => ({ id: item.workspaceId, title: item.title, path: item.path })),
-    recentId: workspaces.recentWorkspaceId,
+    recentId,
   }
 }
 
@@ -718,7 +736,7 @@ export interface UpstreamSessionHeader {
  * @returns the header data, or undefined with no current session.
  */
 export function projectSessionHeader(
-  workspaces: WorkspaceListState, sessions: SessionListState,
+  workspaces: WorkspaceSnapshot, sessions: SessionListState,
 ): UpstreamSessionHeader | undefined {
   const current = sessions.current
   if (current === undefined) return undefined
@@ -737,6 +755,76 @@ export function projectSessionHeader(
 }
 
 /**
+ * The official New Session flow (ui-workspace's `startSession` precedent):
+ * connect the current / recent workspace's blank session (blank-reuse) else
+ * create a fresh one, then open it. 0.1.2 dropped `IWorkspaces.startSession`,
+ * so the blank-reuse + create + open hand-off is spelled out here.
+ * @param sessions - client Session controller.
+ * @param workspaces - client Workspace controller.
+ */
+function startNewSession(sessions: ISessions, workspaces: IWorkspaces): void {
+  const workspaceSnapshot = workspaces.list.getSnapshot()
+  const sessionSnapshot = sessions.list.getSnapshot()
+  const current = sessionSnapshot.current
+  const currentWorkspaceId = current === undefined
+    ? undefined
+    : workspaceSnapshot.items.find(item => item.sessionIds.includes(current))?.workspaceId
+  const recent = workspaceSnapshot.phase === 'ready' && sessionSnapshot.phase === 'ready'
+    ? recentWorkspaceId(workspaceSnapshot.items, sessionSnapshot.byId)
+    : undefined
+  const target = currentWorkspaceId ?? recent
+  if (target === undefined) {
+    sessions.clear()
+    return
+  }
+  void connectWorkspace(sessions, workspaces, target).then(
+    (sessionId) => { sessions.open(sessionId) },
+    (reason: unknown) => { console.warn('bc-web-ui: new session failed:', reason) },
+  )
+}
+
+/** Reuse the target workspace's blank session, or create a fresh one inside it. */
+async function connectWorkspace(
+  sessions: ISessions, workspaces: IWorkspaces, workspaceId: WorkspaceId,
+): Promise<SessionId> {
+  const snapshot = workspaces.list.getSnapshot()
+  const workspace = snapshot.items.find(item => item.workspaceId === workspaceId)
+  if (workspace === undefined) throw new Error(`bc-web-ui: unknown workspace ${String(workspaceId)}`)
+  const archived = snapshot.archivedSessionIds
+  const sessionsSnapshot = sessions.list.getSnapshot()
+  for (const id of sessionsSnapshot.ids) {
+    const summary = sessionsSnapshot.byId[id]
+    if (summary !== undefined && summary.blank && summary.cwd === workspace.path
+      && workspace.sessionIds.includes(summary.id) && !archived.includes(summary.id)) {
+      return summary.id
+    }
+  }
+  return sessions.create({ workspaceId })
+}
+
+/** Most recently active workspace (by member-session activity, createdAt fallback). */
+function recentWorkspaceId(
+  items: readonly { workspaceId: WorkspaceId; sessionIds: readonly SessionId[]; createdAt: string }[],
+  byId: SessionListState['byId'],
+): WorkspaceId | undefined {
+  let selected: WorkspaceId | undefined
+  let selectedTime = Number.NEGATIVE_INFINITY
+  for (const workspace of items) {
+    let latest = Number.NEGATIVE_INFINITY
+    for (const sessionId of workspace.sessionIds) {
+      const session = byId[sessionId]
+      if (session !== undefined) latest = Math.max(latest, session.updatedAt)
+    }
+    if (latest === Number.NEGATIVE_INFINITY) latest = Date.parse(workspace.createdAt)
+    if (selected === undefined || latest > selectedTime) {
+      selected = workspace.workspaceId
+      selectedTime = latest
+    }
+  }
+  return selected
+}
+
+/**
  * Bind the official service faces into the shell's action surface. The
  * failure contract is the services' own: open fails loud on unknown ids,
  * archive rejections surface on the official list state, create/prompt
@@ -747,31 +835,45 @@ export function projectSessionHeader(
  * @param ctx - client root context (sessions/workspaces/locale injected at apply).
  * @returns the inject face delivered to the shell frame component.
  */
-export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
+export function createUpstreamFace(ctx: Context): UpstreamInjectFace {
   const sessions = ctx.sessions satisfies ISessions
   const workspaces = ctx.workspaces satisfies IWorkspaces
-  // The connection service (the wire root; the ui-skill/ui-settings-general
-  // `ctx.get('connection') as …` precedent). Only its skills api face and the
-  // generic /ext rpc caller are named.
-  const connection = ctx.get('connection') as {
-    api: { skills: UpstreamSkillsWireFace; llm: UpstreamLlmWireFace }
-    rpc: { call: UpstreamExtCall }
+  // The remote gateway (typert namespaces) owns the official skills / model /
+  // directory-picker / open-path faces; the /ext business channel rides the
+  // connection service's generic RPC caller. All faces are named structurally
+  // (the carrier packages are not dependencies of this plugin).
+  const remote = (ctx as unknown as {
+    remote: {
+      skills: UpstreamSkillsRemoteFace
+      session: UpstreamSessionRemoteFace
+      directoryPicker: UpstreamDirectoryPickerRemoteFace
+    }
+  }).remote
+  const extCall: UpstreamExtCall = (channel, endpoint, payload) => {
+    // The connection service's generic RPC caller (structural — the client
+    // carrier package is not a dependency of this plugin).
+    const connection = (ctx as unknown as { connection: { rpc: { call: UpstreamExtCall } } }).connection
+    return connection.rpc.call(channel, endpoint, payload)
   }
-  const skills = connection.api.skills
-  const llm = connection.api.llm
-  const extCall = connection.rpc.call
   // The locale service (provided by dsh-client-locale; the Context merge is
   // type-only — never a value import). It doubles as the HostObservable the
   // hooks compartment exposes (getSnapshot + subscribe, structural).
-  const locale: LocaleServiceWireFace = ctx.locale
+  const locale = ctx.locale as unknown as LocaleServiceWireFace
   return {
     archiveSession: (sessionId) => {
       void workspaces.archiveSession(sessionId).catch((reason: unknown) => {
         console.warn('bc-web-ui: archive session rejected:', reason)
       })
     },
-    pickWorkspaceDirectory: () => workspaces.pickDirectory(),
-    openPath: async (path) => { await workspaces.openPath(path) },
+    pickWorkspaceDirectory: async () => {
+      const result = await remote.directoryPicker.pick()
+      if (!result.ok) throw new Error(`bc-web-ui: directory picker rejected: ${result.error.message}`)
+      return result.value
+    },
+    openPath: async (path) => {
+      const result = await remote.session.openWorkspacePath({ path })
+      if (!result.ok) throw new Error(`bc-web-ui: openWorkspacePath rejected: ${result.error.message}`)
+    },
     listOpenWithOptions: async () => {
       const result = await extCall('/ext', 'scene.editors.list', {})
       if (!result.ok) throw new Error(`bc-web-ui: scene.editors.list rejected: ${result.error.code}: ${result.error.message}`)
@@ -786,7 +888,7 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
       const result = await extCall('/ext', 'scene.editor.open', input)
       if (!result.ok) throw new Error(`bc-web-ui: scene.editor.open rejected: ${result.error.code}: ${result.error.message}`)
     },
-    newSession: () => { workspaces.startSession() },
+    newSession: () => { startNewSession(sessions, workspaces) },
     renameSession: async (sessionId, title) => {
       // Row → session-face hop: rename is a per-session verb (ISession), not
       // a list-service verb; the official ui-workspace wrapper's pattern kept
@@ -803,9 +905,9 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
     listSessionSkills: async (sessionId) => {
       // Subagent-addressed sessions carry no user catalog (the ui-skill guard).
       if (sessions.subagentAddress(sessionId) !== undefined) return []
-      const { result } = await skills.list({ sessionId })
+      const result = await remote.skills.list({ sessionId })
       if (!result.ok) {
-        throw new Error(`bc-web-ui: skill.list rejected: ${result.error.code}: ${result.error.message}`)
+        throw new Error(`bc-web-ui: skill.list rejected: ${result.error.message}`)
       }
       return result.value.skills.map(skill => ({
         name: skill.name,
@@ -861,9 +963,9 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
       return (result.value as { ok: true; runs: UpstreamCronRun[] }).runs
     },
     listModels: async () => {
-      const { result } = await llm.models({})
+      const result = await remote.session.modelCatalog()
       if (!result.ok) {
-        throw new Error(`bc-web-ui: llm.models rejected: ${result.error.code}: ${result.error.message}`)
+        throw new Error(`bc-web-ui: modelCatalog rejected: ${result.error.message}`)
       }
       const options: UpstreamModelOption[] = []
       for (const group of result.value.groups) {
@@ -945,6 +1047,6 @@ export function createUpstreamFace(ctx: ClientContext): UpstreamInjectFace {
       const result = await extCall('/ext', 'krm.memories.delete', { id })
       if (!result.ok) throw new Error(`bc-web-ui: krm.memories.delete rejected: ${result.error.code}: ${result.error.message}`)
     },
-    hooks: { locale },
+    hooks: { locale, sessions: sessions.list, workspaces: workspaces.list },
   }
 }

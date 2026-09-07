@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { UpstreamFace, UpstreamFeedProps, UpstreamInjectFace } from '../adapters/upstream.ts'
+import type { UpstreamFace, UpstreamInjectFace } from '../adapters/upstream.ts'
 import { projectSessionHeader, projectWorkspaceOptions } from '../adapters/upstream.ts'
 import { BRANDING } from './branding.ts'
 import { BcCronPage } from './CronPage.tsx'
@@ -23,7 +23,6 @@ import { CronIcon, NewTaskIcon, SkillsIcon } from './icons.tsx'
 /** Full composed props: runtime share + adapter inject face + `t` seat + child-slot render share. */
 export type BcShellFrameProps =
   & PropsRuntime<'root'>
-  & UpstreamFeedProps
   & InjectFace<UpstreamInjectFace>
   & PropsLocale<'bc'>
   & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay' | 'sidebar.settings' | 'sidebar.workspaces'>
@@ -145,8 +144,8 @@ export function BcShellFrame({ useSessions, useWorkspaces, useLocale, setLocale,
               </div>
             )}
       </main>
-      {/* Zero-width column keeps the official DetailsPanel subtree mounted (never unmount on close). */}
-      <div className="bc-web-ui-details">{renderSlot('details', {})}</div>
+      {/* Zero-width column keeps the official DetailsPanel subtree mounted while a session is current (never unmount on close). A strict-session slot needs a scope binding, so it renders only when a session exists. */}
+      <div className="bc-web-ui-details">{currentSessionId !== undefined ? renderSlot('details', {}) : null}</div>
       <div className="bc-web-ui-overlay" data-bc-shell-overlay>{renderSlot('shell.overlay', {})}</div>
     </div>
   )

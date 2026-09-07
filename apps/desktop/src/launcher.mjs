@@ -280,7 +280,7 @@ export function spawnDshWeb(options) {
     [
       ...nodePrefix,
       options.dshBin,
-      'web', '--patch', options.bcPatch, '--host', '127.0.0.1', '--port', '0',
+      'web', '--patch', options.bcPatch, '--host', '127.0.0.1', '--port', '0',"--no-open"
     ],
     { env: options.childEnv, stdio: ['ignore', 'pipe', 'pipe'] },
   )

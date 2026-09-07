@@ -8,8 +8,8 @@
 import { mkdirSync, appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** 端口日志行正则（dsh CLI web 命令的 URL 输出）。 */
-const PORT_LINE = /dsh web: http:\/\/127\.0\.0\.1:(\d+)/u
+/** URL 日志行正则（dsh CLI web 命令带 token 的 URL 输出）。 */
+const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+[^\s]*)/u
 
 /** 环形缓存容量（最近 N 行）。 */
 const TAIL_LINES = 200
@@ -49,18 +49,16 @@ export function createLogSink(options) {
 }
 
 /**
- * 从 dsh 子进程 stdout 解析端口：返回 promise，逐行扫描端口行；resolve 后
- * 停止扫描（端口只出现一次）。不 resolve（由调用方超时处理）。
- * @param sink - 输出 sink（onData 里扫描）。
- * @param onLine - 每行回调（供 sink 复用；扫描器内部调 sink.onData 时拆行）。
+ * 从 dsh 子进程 stdout 解析完整 URL（包含 token）：返回 promise，逐行扫描 URL 行；
+ * resolve 后停止扫描。
  */
 export function scanPort(sink) {
   return new Promise((resolve) => {
     const original = sink.onData.bind(sink)
     sink.onData = (chunk) => {
       original(chunk)
-      const match = PORT_LINE.exec(chunk)
-      if (match?.[1] !== undefined) resolve(Number(match[1]))
+      const match = URL_LINE.exec(chunk)
+      if (match?.[1] !== undefined) resolve(match[1])
     }
   })
 }

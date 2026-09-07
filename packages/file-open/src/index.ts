@@ -2,7 +2,8 @@
  * bc-file-open: a host-only plugin that decides how a file clicked in the chat
  * page is opened, keyed by the file's extension and driven by a JSON config
  * file (no UI). It wraps the single documented host-side point every chat
- * file-open gesture funnels through — `ctx.apiProxy.host.openPath` — and
+ * file-open gesture funnels through — the SessionController's native
+ * `openPath` seam (behind `ctx.remote.session.openWorkspacePath`) — and
  * dispatches per the configured action. Nothing upstream is modified: the
  * original handler is captured on apply and restored on dispose.
  *
@@ -145,20 +146,14 @@ function resolveRule(path: string): Rule | undefined {
 // open dispatch
 // ---------------------------------------------------------------------------
 
-/** Minimal structural view of the host.openPath wire (carrier package not a dependency). */
-interface OpenPathRequest {
-  rpcId: unknown
-  payload: { path: string }
-}
-interface OpenPathResponse {
-  rpcId: unknown
-  result:
-    | { ok: true; value: { opened: true } }
-    | { ok: false; error: { code: string; message: string; details: unknown } }
-}
-type OpenPathHandler = (request: OpenPathRequest, signal: AbortSignal) => Promise<OpenPathResponse>
-interface ApiProxyFace {
-  host: { openPath: OpenPathHandler }
+/** Minimal structural view of the SessionController.openPath seam (carrier package not a dependency).
+ * The SessionController (dsh-api-session-controller) exposes `openPath` as a private
+ * instance method whose default is the platform's native opener; every
+ * `ctx.remote.session.openWorkspacePath` call on the host funnels through it.
+ * We reach it structurally, the same way this plugin reached apiProxy before. */
+type OpenPathHandler = (path: string, signal: AbortSignal) => Promise<void>
+interface SessionControllerFace {
+  openPath: OpenPathHandler
 }
 
 /** Quote one argv token for cmd.exe (only when it carries spaces or quotes). */
@@ -221,46 +216,35 @@ function applyAction(rule: Rule, path: string): void {
   }
 }
 
-function opened(request: OpenPathRequest): OpenPathResponse {
-  return { rpcId: request.rpcId, result: { ok: true, value: { opened: true } } }
-}
-
-function failed(request: OpenPathRequest, message: string): OpenPathResponse {
-  return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message, details: {} } } }
-}
-
-/** Wrap the original handler so the configured policy determines the outcome. */
+/** Wrap the original handler so the configured policy determines the outcome.
+ * The policy verbs run synchronously (launch/reveal are fire-and-forget); a
+ * "default" or unmatched path delegates to the original native opener. */
 function wrapHandler(original: OpenPathHandler): OpenPathHandler {
-  return async (request, signal) => {
-    const rule = resolveRule(request.payload.path)
+  return async (path, signal) => {
+    const rule = resolveRule(path)
     if (rule === undefined || rule.action === 'default') {
-      return original(request, signal)
+      return original(path, signal)
     }
-    try {
-      applyAction(rule, request.payload.path)
-      return opened(request)
-    } catch (error) {
-      return failed(request, error instanceof Error ? error.message : String(error))
-    }
+    applyAction(rule, path)
   }
 }
 
-/** This plugin must run after the api-proxy service provides `ctx.apiProxy`. */
-export const inject = ['apiProxy']
+/** This plugin must run after the Session Controller provides `ctx.sessionController`. */
+export const inject = ['sessionController']
 
 /**
- * Wrap `ctx.apiProxy.host.openPath` for the lifetime of this plugin; the
+ * Wrap `ctx.sessionController.openPath` for the lifetime of this plugin; the
  * disposer restores the original (a symlink-style reinstall of the profile
  * re-runs apply, so the restore keeps re-entry idempotent).
  * @param ctx - owning plugin context.
  */
 export function apply(ctx: Context): void {
-  const api = (ctx as unknown as { apiProxy: ApiProxyFace }).apiProxy
-  const original = api.host.openPath
+  const controller = (ctx as unknown as { sessionController: SessionControllerFace }).sessionController
+  const original = controller.openPath
   ctx.effect(
     () => {
-      api.host.openPath = wrapHandler(original)
-      return () => { api.host.openPath = original }
+      controller.openPath = wrapHandler(original)
+      return () => { controller.openPath = original }
     },
     'bc-file-open: openPath policy',
   )

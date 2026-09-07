@@ -5,6 +5,7 @@ lib/
 .next/
 *.tsbuildinfo
 .pnpm-store/
+.pnpm-cache/
 
 # ---- reference mirror (pulled by scripts/sync-reference.mjs, NEVER committed) ----
 # Open-source releases must not expose the upstream source or demo assets.

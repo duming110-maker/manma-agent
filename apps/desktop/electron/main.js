@@ -123,7 +123,7 @@ async function bootstrap() {
     })
 
     // 常驻 dsh 子进程 + 端口解析。
-    const { child, port: portPromise, sink } = spawnDshWeb({
+    const { child, port: urlPromise, sink } = spawnDshWeb({
       dshBin,
       bcPatch,
       childEnv,
@@ -131,13 +131,9 @@ async function bootstrap() {
       logFile: join(userDataDir, 'logs', 'desktop.log'),
       runAsNode: true,
     })
-    child.on('exit', (code) => {
-      // dsh 退出 → 应用退出（托盘常驻期间子进程崩溃也应退出）。
-      app.exit(code ?? 0)
-    })
 
-    const port = await withTimeout(portPromise, PORT_TIMEOUT_MS, sink)
-    const url = `http://127.0.0.1:${port}/`
+    // 等待从日志中解析出的带 token 完整地址
+    const url = await withTimeout(urlPromise, PORT_TIMEOUT_MS, sink)
 
     mainWindow = createMainWindow({ url, title: branding.productName, onClose: () => { /* 窗口隐藏，托盘常驻 */ } })
     createTray({ branding, onOpen: () => { mainWindow?.show() }, onQuit: () => {

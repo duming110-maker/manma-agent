@@ -9,17 +9,21 @@
 
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { createRequire } from 'node:module'
 import { DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
 
 /** bc 插件清单（与 launcher 的 BC_PLUGINS 对应）。 */
 const PLUGINS = ['@bc-agent/web-ui', '@bc-agent/capability-core', '@bc-agent/file-open']
 
+/** 外部 npm 插件清单（从 node_modules 中打包出 tgz 并随 Electron 分发）。 */
+const EXTERNAL_PLUGINS = ['dsh-better-sidebar']
+
 /** 是否 Windows（pnpm 需 .cmd）。 */
 const shell = process.platform === 'win32'
 
 /**
- * 打包 bc 插件 tarball 到 resources/plugins/ 并拷 patch。
+ * 打包 bc 插件与外部插件 tarball 到 resources/plugins/ 并拷 patch。
  * @param options - brandDir（BC_BRAND_DIR，web-ui 品牌化构建）。
  */
 export function packPlugins(options) {
@@ -30,11 +34,24 @@ export function packPlugins(options) {
   mkdirSync(pluginsDir, { recursive: true })
   const env = { ...process.env, ...(options.brandDir ? { BC_BRAND_DIR: options.brandDir } : {}) }
 
+  // 1. 打包本地 monorepo packages 下的子包
   for (const pkg of PLUGINS) {
     const build = spawnSync('pnpm', ['--filter', pkg, 'run', 'build'], { cwd: REPO_ROOT, env, stdio: 'inherit', shell })
     if (build.status !== 0) throw new Error(`pack-plugins: build failed for ${pkg}`)
     const pack = spawnSync('pnpm', ['--filter', pkg, 'pack', '--pack-destination', pluginsDir], { cwd: REPO_ROOT, env, stdio: 'inherit', shell })
     if (pack.status !== 0) throw new Error(`pack-plugins: pack failed for ${pkg}`)
+  }
+
+  // 2. 将外部 npm 包打包为 tgz 输出到 pluginsDir
+  const require = createRequire(import.meta.url)
+  for (const extPkg of EXTERNAL_PLUGINS) {
+    // 自动在 node_modules 中查找包的真实路径
+    const pkgJsonPath = require.resolve(`${extPkg}/package.json`, { paths: [REPO_ROOT, DESKTOP_DIR] })
+    const extPkgDir = dirname(pkgJsonPath)
+
+    // 在外部包所在目录下打包导出 tgz
+    const packExt = spawnSync('npm', ['pack', '--pack-destination', pluginsDir], { cwd: extPkgDir, env, stdio: 'inherit', shell })
+    if (packExt.status !== 0) throw new Error(`pack-plugins: pack external failed for ${extPkg}`)
   }
 
   // cordis.patch.yml（profile 叠加，--patch 传给 dsh web）。
