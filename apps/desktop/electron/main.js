@@ -15,7 +15,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { loadBranding, DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
 import {
-  resolveDshBin, ensurePluginsReady, ensureSidebarSettingsDefaults, buildChildEnv, spawnDshWeb,
+  resolveDshBin, ensurePluginsReady, buildChildEnv, spawnDshWeb,
 } from '../src/launcher.mjs'
 import { writeRuntimeShims } from './shims.mjs'
 import { createMainWindow, markQuitting } from './window.js'
@@ -131,9 +131,6 @@ async function bootstrap() {
       clearEnvUrl: shims.clearEnvUrl,
       runAsNode: true,
     })
-
-    // dsh-better-sidebar 默认偏好（首次启动写入 settings.yaml，幂等）。
-    ensureSidebarSettingsDefaults(dshHome)
 
     // 常驻 dsh 子进程 + 端口解析。
     const { child, port: urlPromise, sink } = spawnDshWeb({

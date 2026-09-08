@@ -567,7 +567,10 @@ body[data-ds-dark-theme] .bc-web-ui-frame {
   gap: 8px;
   box-sizing: border-box;
   height: 44px;
-  padding: 0 24px;
+  /* 右侧预留 99px：dsh-better-sidebar 的开关簇固定悬浮在视口右上角
+     （right:10px，两个 28px 按钮 ≈ 60px 宽），头部的「打开/归档」按钮继续
+     靠右对齐，但整体让出该保留带（按钮右缘距视口右缘 99px）。 */
+  padding: 0 99px 0 24px;
   border-bottom: 1px solid var(--bc-border);
   background: var(--bc-bg-card);
 }
