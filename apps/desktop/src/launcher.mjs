@@ -121,6 +121,28 @@ function ensureProfileWorkspace(dshHome) {
   writeFileSync(wsPath, text)
 }
 
+/** dsh-better-sidebar 的出厂默认偏好（写入 settings.yaml 的 dsh-better-sidebar 段）。
+ * 标题栏兼容位：插件开关簇默认钉在视口右上角（top 14px），与 bc 会话头右端的
+ * 「打开/归档」按钮重叠；`custom` scheme + 40px strip（titleBarStripPx 默认值）
+ * 把开关簇下移到 bc 头部行以下（strip+3=43px）。只在用户文档尚无该段时写入——
+ * 用户一旦在 Side card 设置页改过任意偏好（或手改过），本函数不再触碰。 */
+const SIDEBAR_SETTINGS_DEFAULT = `# bc-agent 默认配置：让侧边栏插件的开关簇让出会话头部右上角。
+dsh-better-sidebar:
+  titleBarScheme: custom
+  titleBarCompat: true
+  titleBarPresetId: dsh-desktop
+`
+
+/** 首次启动把 dsh-better-sidebar 默认偏好种进 settings.yaml（幂等）。 */
+export function ensureSidebarSettingsDefaults(dshHome) {
+  const settingsPath = join(dshHome, 'settings.yaml')
+  let text = existsSync(settingsPath) ? readFileSync(settingsPath, 'utf8') : ''
+  if (/^dsh-better-sidebar:/m.test(text)) return
+  text = text.trimEnd() === '' ? SIDEBAR_SETTINGS_DEFAULT : `${text.replace(/\s+$/u, '')}\n${SIDEBAR_SETTINGS_DEFAULT}`
+  mkdirSync(dshHome, { recursive: true })
+  writeFileSync(settingsPath, text)
+}
+
 /** 内容指纹 = tarball 的升级身份：0.1.0 版本号跨构建不变，但每次 `dist` 出的
  * 字节可能不同，所以「已装最新」必须按内容哈希判定，而非 marker 的单纯存在。 */
 function tarballFingerprint(filePath) {

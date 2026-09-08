@@ -95,6 +95,7 @@ export function shapeBranding(tree) {
   const desktop = tree.desktop
   if (product === undefined) throw new Error('branding: missing "product:" section')
   if (desktop === undefined) throw new Error('branding: missing "desktop:" section (P1-0 desktop shell)')
+  if (window === undefined || typeof window.title !== 'string' || window.title === '') throw new Error('branding: missing/invalid window.title')
   const scalar = (section, key) => {
     const value = section[key]
     if (typeof value !== 'string') throw new Error(`branding: missing/invalid desktop.${key}`)
@@ -106,6 +107,7 @@ export function shapeBranding(tree) {
     brandId: scalar(desktop, 'brandId'),
     appId: scalar(desktop, 'appId'),
     productName: scalar(desktop, 'productName'),
+    windowTitle: window.title,
     executableName: scalar(desktop, 'executableName'),
     icon: scalar(desktop, 'icon'),
     trayIcon: scalar(desktop, 'trayIcon'),

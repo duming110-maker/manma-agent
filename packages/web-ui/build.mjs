@@ -49,7 +49,7 @@ const BRANDING_YAML = process.env.BC_BRAND_DIR !== undefined && process.env.BC_B
  * fails loud (the branding schema is ours; unknown shapes must not pass a
  * build silently).
  * @param {string} source - the raw yaml text.
- * @returns {{product: {name: {zh: string, en: string}}, theme: Record<string, string>}} the branding payload.
+ * @returns {Record<string, Record<string, unknown>>} the parsed tree.
  */
 function parseBrandingYaml(source) {
   /** @type {Record<string, Record<string, unknown>>} */
@@ -78,7 +78,7 @@ function parseBrandingYaml(source) {
       tree[key] ??= {}
     }
   }
-  return shapeBranding(tree)
+  return tree
 }
 
 /**
@@ -139,6 +139,21 @@ function shapeBranding(tree) {
   return { product: { name: nameDict }, theme: themeOut }
 }
 
+/**
+ * The favicon payload: branding.yaml desktop.icon (PNG, relative to the brand
+ * directory) embedded as a base64 data URL at BUILD time. A brand declaring
+ * no icon yields '' (the client then leaves the page favicon alone); a
+ * declared-but-missing file fails the build (readFileSync throws — fail-loud).
+ * @param {Record<string, Record<string, unknown>>} tree - the parsed branding tree.
+ * @returns {string} the data URL, or ''.
+ */
+function iconDataUrl(tree) {
+  const iconRel = tree.desktop?.icon
+  if (typeof iconRel !== 'string' || iconRel === '') return ''
+  const png = readFileSync(new URL(iconRel, BRANDING_YAML))
+  return `data:image/png;base64,${png.toString('base64')}`
+}
+
 // ---- Branding payload (build-time single source) ----------------------------
 let brandingText
 try {
@@ -146,7 +161,8 @@ try {
 } catch (error) {
   throw new Error(`branding: cannot read ${BRANDING_YAML.pathname} (${String(error)})`)
 }
-const branding = parseBrandingYaml(brandingText)
+const tree = parseBrandingYaml(brandingText)
+const branding = shapeBranding(tree)
 console.log(`-> branding from branding/default/branding.yaml (name.zh="${branding.product.name.zh}", name.en="${branding.product.name.en}", theme.primary=${branding.theme.primary})`)
 
 await mkdir('lib', { recursive: true })
@@ -185,7 +201,7 @@ await build({
   sourcemap: 'external',
   external: CLIENT_EXTERNALS,
   jsx: 'automatic',
-  define: { __BC_BRANDING__: JSON.stringify(JSON.stringify(branding)) },
+  define: { __BC_BRANDING__: JSON.stringify(JSON.stringify(branding)), __BC_ICON__: JSON.stringify(iconDataUrl(tree)) },
 })
 // esbuild's own client.js carries the `//# sourceMappingURL` comment; strip it
 // before wrapping, then append ours after the shell so the browser resolves the

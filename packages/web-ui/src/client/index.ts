@@ -32,6 +32,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // plus the built-in 'root' SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { createUpstreamFace } from '../adapters/upstream.ts'
+import { BRAND_ICON_DATA_URL } from './branding.ts'
 import { BcShellFrame } from './BcShellFrame.tsx'
 import { createBcLayoutFace, type BcLayoutFace } from './layout.ts'
 import { en, zh } from './locale.ts'
@@ -149,6 +150,23 @@ const BC_NS = 'bc'
  */
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(BC_NS, { zh, en }), 'bc-web-ui: dictionaries')
+
+  // The tab favicon follows the brand icon (branding.yaml desktop.icon,
+  // base64-embedded by build.mjs): replace the upstream static favicon.svg.
+  // '' (a brand declaring no icon) leaves the page favicon alone.
+  ctx.effect(() => {
+    if (BRAND_ICON_DATA_URL !== '') {
+      let link = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]')
+      if (link === null) {
+        link = document.createElement('link')
+        link.rel = 'icon'
+        document.head.append(link)
+      }
+      link.type = 'image/png'
+      link.href = BRAND_ICON_DATA_URL
+    }
+    return () => {}
+  }, 'bc-web-ui: favicon')
 
   const layout: BcLayoutFace = createBcLayoutFace()
   ctx.effect(() => {

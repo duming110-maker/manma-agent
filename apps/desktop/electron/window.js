@@ -51,6 +51,11 @@ export function createMainWindow(options) {
   // ready-to-show 后再显示，避免白屏闪烁。
   window.once('ready-to-show', () => { window.show() })
 
+  // 窗口标题钉死为品牌名（branding 单源，创建时传入的 options.title）：页面
+  // 任何 document.title 变更（上游 index.html 的 "DeepSeek Harness" 等）都不
+  // 覆盖 Electron 窗口标题。
+  window.on('page-title-updated', (event) => { event.preventDefault() })
+
   // 同源导航校验：非本 origin 的 frame/redirect 一律阻止。
   window.webContents.on('will-frame-navigate', (event, url) => {
     if (new URL(url).origin !== allowedOrigin) event.preventDefault()

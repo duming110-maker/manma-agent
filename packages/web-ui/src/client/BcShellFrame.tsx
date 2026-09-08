@@ -52,9 +52,10 @@ export function BcShellFrame({ useSessions, useWorkspaces, useLocale, setLocale,
   }), [newSession, archiveSession, renameSession, listSessionSkills, setLocale, setOfficialTheme, pickWorkspaceDirectory, openPath, listOpenWithOptions, setDefaultOpen, openEditor, installSkill, installMarketSkill, listMarketSkills, listCronTasks, createCronTask, updateCronTask, deleteCronTask, runCronTask, listCronRuns, listModels, listInstalledSkills, uninstallSkill, editSkill, moveSkill, copySkill, listWorkspaces, listRules, createRule, updateRule, deleteRule, listMemories, getMemoriesState, setMemoriesState, createMemory, updateMemory, deleteMemory])
 
   const brandName = locale.active === 'en' ? BRANDING.product.name.en : BRANDING.product.name.zh
-  // The brand mark's glyph: the product name's first character (derived from
-  // the branding single source — the mark is decorative, the name follows it).
-  const brandMarkGlyph = brandName.charAt(0)
+
+  // The tab/window title follows the brand: the upstream static index.html
+  // title ("DeepSeek Harness") is replaced at runtime (iron rule 5).
+  useEffect(() => { document.title = brandName }, [brandName])
 
   // Pivot back to the conversation surface whenever a session becomes current
   // through the OFFICIAL workspace browser (open an existing task or a new
@@ -75,10 +76,10 @@ export function BcShellFrame({ useSessions, useWorkspaces, useLocale, setLocale,
     <div className="bc-web-ui-frame">
       <aside className="bc-web-ui-sidebar" data-bc-sidebar aria-label={t('shell.sidebarLabel')}>
         {/* Brand header: branding-sourced name + primary-colored mark. */}
-        <div className="bc-web-ui-sidebar-header" data-bc-brand-area>
-          <span className="bc-web-ui-brand-mark" data-bc-brand aria-hidden="true">{brandMarkGlyph}</span>
-          <span className="bc-web-ui-brand-name" data-bc-brand-name>{brandName}</span>
-        </div>
+        {/*<div className="bc-web-ui-sidebar-header" data-bc-brand-area>*/}
+        {/*  <span className="bc-web-ui-brand-mark" data-bc-brand aria-hidden="true">{brandMarkGlyph}</span>*/}
+        {/*  <span className="bc-web-ui-brand-name" data-bc-brand-name>{brandName}</span>*/}
+        {/*</div>*/}
 
         <nav className="bc-web-ui-nav-block">
           <button

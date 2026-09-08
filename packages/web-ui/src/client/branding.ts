@@ -36,5 +36,12 @@ export interface BcBranding {
 // literal compiled from branding/default/branding.yaml.
 declare const __BC_BRANDING__: string
 
+// Build-time define target: build.mjs replaces this identifier with the
+// favicon data URL (branding.yaml desktop.icon, base64-embedded); '' = none.
+declare const __BC_ICON__: string
+
 /** The branding constants (parsed once at materialization). */
 export const BRANDING: BcBranding = JSON.parse(__BC_BRANDING__)
+
+/** The brand favicon as a data URL ('' when the brand declares no icon). */
+export const BRAND_ICON_DATA_URL: string = __BC_ICON__

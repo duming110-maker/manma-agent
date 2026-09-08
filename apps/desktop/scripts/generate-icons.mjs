@@ -1,18 +1,26 @@
 /**
- * 图标生成（P1-0）：程序化生成默认品牌图标（避免引入 native sharp）——
- * 品牌主色圆角方块 + 中央亮块，输出 `build/icon.png`（256）、`build/icon.ico`
- * （16/32/48/256 多尺寸，经 png-to-ico）、`build/tray-icon.png`（64）。品牌
- * 重建时按 branding 主色重生成；默认品牌图标随仓库提交。
+ * 图标生成（P1-0）：优先使用品牌图标文件（branding.yaml desktop.icon /
+ * desktop.trayIcon，相对品牌目录，PNG ≥256），转出 `build/icon.png`（256）、
+ * `build/icon.ico`（16/32/48/256 多尺寸，经 png-to-ico）、
+ * `build/tray-icon.png`（64，无独立托盘图时从应用图标缩出）。品牌目录没有
+ * 图标文件时回退程序化渲染（避免引入 native sharp）——品牌主色圆角方块 +
+ * 中央亮块。默认品牌图标随仓库提交（branding/default/icon.png）。
  *
  * PNG 编码最小实现：签名 + IHDR + IDAT（zlib deflate）+ IEND，CRC32 查表法。
  * @module desktop/scripts/generate-icons
  */
 
 import { deflateSync } from 'node:zlib'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import pngToIco from 'png-to-ico'
 import { DESKTOP_DIR, readBranding } from '../src/branding.mjs'
+
+const require = createRequire(import.meta.url)
+// png-to-ico 内部 PNG 工具（该包无 exports 字段，子路径可引）：readPNG/resize
+// 均基于它自带的 pngjs，解码/缩放品牌图标无需再引入独立的图像库。
+const { readPNG, resize } = require('png-to-ico/lib/png')
 
 /** PNG 签名。 */
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -109,17 +117,42 @@ function readThemePrimary(brandYaml) {
   return m[1]
 }
 
-/** 主流程：按品牌主色生成 build/ 图标。 */
+/** pngjs 实例 → PNG 字节（pngjs 类经实例 constructor 获得，不直接依赖 pngjs）。 */
+function encodePng(png) {
+  return png.constructor.sync.write(png)
+}
+
+/** 主流程：优先品牌图标文件，缺省回退主色渲染，输出 build/ 图标。 */
 export async function generateIcons(options) {
   const branding = readBranding(options.brandYaml)
-  const color = parseRgb(readThemePrimary(options.brandYaml))
+  const brandDir = dirname(options.brandYaml)
   const buildDir = join(DESKTOP_DIR, 'build')
   mkdirSync(buildDir, { recursive: true })
 
+  // 品牌图标文件（branding.yaml desktop.icon）：存在则以其为源转出全套产物。
+  // pngToIco 单路径形态内部缩放 16/32/48/256（源为任意尺寸方形 PNG）。
+  const iconPath = join(brandDir, branding.icon)
+  if (existsSync(iconPath)) {
+    const source = await readPNG(iconPath)
+    if (source.width !== source.height) {
+      throw new Error(`icons: brand icon must be square (got ${source.width}x${source.height})`)
+    }
+    writeFileSync(join(buildDir, 'icon.png'), encodePng(resize(source, 256, 256)))
+    writeFileSync(join(buildDir, 'icon.ico'), await pngToIco(iconPath))
+    // 托盘图：branding.yaml desktop.trayIcon 优先；缺省从应用图标缩 64。
+    const trayPath = join(brandDir, branding.trayIcon)
+    const traySource = existsSync(trayPath) ? await readPNG(trayPath) : source
+    writeFileSync(join(buildDir, 'tray-icon.png'), encodePng(resize(traySource, 64, 64)))
+    console.log(`-> icons from brand files (brand ${branding.brandId})`)
+    return
+  }
+
+  // 回退：按品牌主色程序化渲染占位图标。
+  const color = parseRgb(readThemePrimary(options.brandYaml))
   const png256 = renderPng(256, color)
   writeFileSync(join(buildDir, 'icon.png'), png256)
   writeFileSync(join(buildDir, 'tray-icon.png'), renderPng(64, color))
   const ico = await pngToIco([renderPng(16, color), renderPng(32, color), renderPng(48, color), png256])
   writeFileSync(join(buildDir, 'icon.ico'), ico)
-  console.log(`-> icons generated (brand ${branding.brandId})`)
+  console.log(`-> icons rendered from primary color (brand ${branding.brandId})`)
 }

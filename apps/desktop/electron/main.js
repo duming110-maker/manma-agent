@@ -15,7 +15,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { loadBranding, DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
 import {
-  resolveDshBin, ensurePluginsReady, buildChildEnv, spawnDshWeb,
+  resolveDshBin, ensurePluginsReady, ensureSidebarSettingsDefaults, buildChildEnv, spawnDshWeb,
 } from '../src/launcher.mjs'
 import { writeRuntimeShims } from './shims.mjs'
 import { createMainWindow, markQuitting } from './window.js'
@@ -132,6 +132,9 @@ async function bootstrap() {
       runAsNode: true,
     })
 
+    // dsh-better-sidebar 默认偏好（首次启动写入 settings.yaml，幂等）。
+    ensureSidebarSettingsDefaults(dshHome)
+
     // 常驻 dsh 子进程 + 端口解析。
     const { child, port: urlPromise, sink } = spawnDshWeb({
       dshBin,
@@ -145,7 +148,7 @@ async function bootstrap() {
     // 等待从日志中解析出的带 token 完整地址
     const url = await withTimeout(urlPromise, PORT_TIMEOUT_MS, sink)
 
-    mainWindow = createMainWindow({ url, title: branding.productName, onClose: () => { /* 窗口隐藏，托盘常驻 */ } })
+    mainWindow = createMainWindow({ url, title: branding.windowTitle, onClose: () => { /* 窗口隐藏，托盘常驻 */ } })
     createTray({ branding, onOpen: () => { mainWindow?.show() }, onQuit: () => {
       child.kill()
       app.quit()
