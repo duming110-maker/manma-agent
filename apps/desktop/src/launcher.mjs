@@ -37,7 +37,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { gunzipSync } from 'node:zlib'
 import { dirname, join } from 'node:path'
@@ -60,6 +60,13 @@ const BC_PLUGINS = [
   { name: 'file-open', scopeName: '@bc-agent/file-open' },
 ]
 
+/** 外部 npm 插件（`dsh plugin add` 安装，随 Electron 以 tarball 分发）。
+ * dev（link 模式）由 profile 里已手动安装的实体覆盖，不重复装；packaged
+ * 首启与 bc 插件同路径从 `resources/plugins/<name>-<ver>.tgz` 安装。 */
+const EXTERNAL_PLUGINS = [
+  { name: 'dsh-better-sidebar', scopeName: 'dsh-better-sidebar' },
+]
+
 /** pnpm pack 的 tarball 顶层固定为 `package/`，库产物都在 `package/lib/`。
  * 含尾部斜杠：切片后相对路径与 installedLibFingerprint 的 walk 口径一致
  *（无前导斜杠；用 `package/lib` 会切出 `/client.js`，指纹永远不相等——
@@ -69,6 +76,49 @@ const PACK_LIB_PREFIX = 'package/lib/'
 /** profile 里已安装的幂等标记路径。 */
 export function pluginInstalledMarker(dshHome, scopeName) {
   return join(dshHome, 'profiles', 'web', 'node_modules', scopeName, 'package.json')
+}
+
+/** profile manifest 的 `dsh.profile.bundles` 层列表（bundle 注册事实源）。 */
+function profileBundles(dshHome) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(dshHome, 'profiles', 'web', 'package.json'), 'utf8'))
+    return manifest.dsh?.profile?.bundles ?? []
+  } catch {
+    return []
+  }
+}
+
+/** 已装插件是否声明为 profile bundle（package.json 的 `dsh.bundle.patch`）。 */
+function declaresBundle(pkgDir) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'))
+    return manifest.dsh?.bundle?.patch !== undefined
+  } catch {
+    return false
+  }
+}
+
+/** 确保 profile 的 pnpm 工作区放行 dsh-better-sidebar 的 node-pty 构建脚本。
+ * pnpm 11 对被忽略的构建脚本以 ERR_PNPM_IGNORED_BUILDS 硬失败（exit 1），
+ * dsh plugin add 随之失败、bundle reconcile 不跑——实体已落地但 bundles 缺名，
+ * 表现为「插件装上了但不加载」。pnpm 首次遇到 node-pty 还会自动写占位值
+ * `set this to true or false`（非布尔，allowBuilds 的 switch 不命中 → 仍忽略）；
+ * 这里在任何 plugin add 前把真实布尔 true 写死。node-pty 的 install 脚本仅
+ * 检查随包预编译 prebuilds 目录即退出 0，无需编译工具链。 */
+function ensureProfileWorkspace(dshHome) {
+  const profileDir = join(dshHome, 'profiles', 'web')
+  const wsPath = join(profileDir, 'pnpm-workspace.yaml')
+  let text = existsSync(wsPath) ? readFileSync(wsPath, 'utf8') : ''
+  if (!/^allowBuilds:/m.test(text)) {
+    text = `${text.replace(/\s*$/u, '')}\n\nallowBuilds:\n  node-pty: true\n`
+  } else if (!/^  node-pty:\s*true\s*$/m.test(text)) {
+    // 已有 allowBuilds 块：把 node-pty 行（含 pnpm 写的占位符）改为真实布尔。
+    text = /^  node-pty:.*$/m.test(text)
+      ? text.replace(/^  node-pty:.*$/m, '  node-pty: true')
+      : text.replace(/^(allowBuilds:.*)$/m, '$1\n  node-pty: true')
+  }
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(wsPath, text)
 }
 
 /** 内容指纹 = tarball 的升级身份：0.1.0 版本号跨构建不变，但每次 `dist` 出的
@@ -149,15 +199,19 @@ function installedLibFingerprint(pkgDir) {
  * @returns 插件安装描述数组。
  */
 export function bcPluginSpecs(options) {
-  return BC_PLUGINS.map((plugin) => {
-    if (options.mode === 'link') {
+  if (options.mode === 'link') {
+    return BC_PLUGINS.map((plugin) => {
       return {
         name: plugin.name,
         scopeName: plugin.scopeName,
         spec: `link:${join(options.repoRoot, 'packages', plugin.name)}`,
         buildDir: join(options.repoRoot, 'packages', plugin.name),
       }
-    }
+    })
+  }
+  // tarball 模式：bc 插件 + 外部插件同路径安装（npm pack 的非 scoped 包 tarball
+  // 名 `<name>-<ver>.tgz`，前缀规则与 scoped 包统一：去 @、/ → -）。
+  return [...BC_PLUGINS, ...EXTERNAL_PLUGINS].map((plugin) => {
     const dir = join(options.resourcesDir, 'plugins')
     // pnpm pack 的 tarball 名：`@bc-agent/web-ui` → `bc-agent-web-ui-<ver>.tgz`（/ → -）。
     const prefix = `${plugin.scopeName.replace('@', '').replace('/', '-')}-`
@@ -200,6 +254,7 @@ function ensurePluginBuilt(plugin, env) {
  * @param options - mode/dshBin/childEnv/dshHome/repoRoot/resourcesDir/clearEnvUrl/runAsNode。
  */
 export function ensurePluginsReady(options) {
+  ensureProfileWorkspace(options.dshHome)
   const plugins = bcPluginSpecs({
     mode: options.mode,
     repoRoot: options.repoRoot,
@@ -221,9 +276,14 @@ export function ensurePluginsReady(options) {
       // 取代旧的 marker/指纹文件判定——pnpm hoisted 布局对同版本 file: tarball 内容变化
       // 只刷新元数据不落地实体，独立指纹文件会「显示最新、实体陈旧」（poisoned state），
       // 导致 dev「打开」正常而 exe 无效。内容比对直接看实体，陈旧即删目录强制重装（自愈）。
+      // bundle 插件另加一道注册检查：实体在但 `dsh.profile.bundles` 缺名（首装中途
+      // 失败、pnpm 已落地实体而 dsh 的 reconcile 未跑）→ 同样视为未就绪强制重装，
+      // 否则 dsh web 启动时不加载该插件（首启报错、次启「装上了但不加载」）。
       const expected = tarballDirFingerprint(plugin.spec, PACK_LIB_PREFIX)
       const actual = installedLibFingerprint(pkgDir)
-      if (actual !== undefined && actual === expected) continue
+      const isBundle = declaresBundle(pkgDir)
+      const registered = !isBundle || profileBundles(options.dshHome).includes(plugin.scopeName)
+      if (actual !== undefined && actual === expected && registered) continue
       wasInstalled = actual !== undefined
       if (wasInstalled) rmSync(pkgDir, { recursive: true, force: true })
     }
@@ -232,12 +292,18 @@ export function ensurePluginsReady(options) {
     // 同一 0.1.0 版本号下 pnpm 可能命中缓存、不重读本地 tarball 内容：已装过的补 --force。
     if (wasInstalled) addArgs.push('--force')
     process.stderr.write(`desktop: installing ${plugin.scopeName} into the 'web' profile (${options.mode})\n`)
+    // pipe 捕获而非 inherit：packaged GUI 无控制台，失败的 pnpm 输出会随异常消息进
+    // fail-loud 弹窗（不再「只报安装失败、不知为何失败」）；dev 的失败同样可见（message 带尾部）。
     const result = spawnSync(
       process.execPath,
       [...nodePrefix, options.dshBin, ...addArgs],
-      { env: options.childEnv, stdio: 'inherit' },
+      { env: options.childEnv, stdio: ['ignore', 'pipe', 'pipe'] },
     )
-    if (result.status !== 0) throw new Error(`desktop: dsh plugin add failed for ${plugin.scopeName} (exit ${String(result.status)})`)
+    if (result.status !== 0) {
+      const tail = Buffer.concat([result.stdout ?? Buffer.alloc(0), result.stderr ?? Buffer.alloc(0)])
+        .toString('utf8').trim().slice(-1200)
+      throw new Error(`desktop: dsh plugin add failed for ${plugin.scopeName} (exit ${String(result.status)})${tail ? `\n${tail}` : ''}`)
+    }
     if (!existsSync(marker)) throw new Error(`desktop: ${plugin.scopeName} still unresolvable after install (${marker})`)
     if (options.mode === 'tarball') {
       const after = installedLibFingerprint(pkgDir)

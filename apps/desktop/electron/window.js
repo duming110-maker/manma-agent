@@ -2,6 +2,8 @@
  * BrowserWindow 工厂 + 安全策略（05-references §4.8 纪律）：contextIsolation +
  * sandbox + 无 Node 集成 + 无 preload bridge；同源导航校验（只放行 loopback
  * 源，外链转系统浏览器）；窗口 close 默认隐藏（托盘常驻，托盘提供恢复/退出）。
+ * 应用级退出（before-quit）置 isQuitting，close 时放行——否则托盘「退出」
+ * 触发 app.quit() 会被 close 的 preventDefault 吞掉，表现为退出无效。
  * @module desktop/electron/window
  */
 
@@ -9,6 +11,16 @@ import { BrowserWindow, shell } from 'electron'
 
 /** 当前应用的 loopback 源（启动时锚定，供导航校验）。 */
 let allowedOrigin = ''
+
+/** 应用是否正在退出（before-quit 置位；close 据此放行真正关闭）。 */
+let isQuitting = false
+
+/**
+ * 标记应用退出中（供 close 处理器放行）。由调用方在 app 'before-quit' 时调用。
+ */
+export function markQuitting() {
+  isQuitting = true
+}
 
 /**
  * 创建主窗口并加载 dsh URL。
@@ -52,9 +64,9 @@ export function createMainWindow(options) {
     return { action: 'deny' }
   })
 
-  // close 默认隐藏（托盘常驻）；真正退出走托盘「退出」或 dsh 退出。
+  // close 默认隐藏（托盘常驻）；应用级退出（isQuitting）时放行真正关闭。
   window.on('close', (event) => {
-    if (!window.isDestroyed()) {
+    if (!isQuitting && !window.isDestroyed()) {
       event.preventDefault()
       window.hide()
       options.onClose()

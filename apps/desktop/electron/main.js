@@ -10,6 +10,7 @@
  */
 
 import { app, dialog } from 'electron'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { loadBranding, DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
@@ -17,7 +18,7 @@ import {
   resolveDshBin, ensurePluginsReady, buildChildEnv, spawnDshWeb,
 } from '../src/launcher.mjs'
 import { writeRuntimeShims } from './shims.mjs'
-import { createMainWindow } from './window.js'
+import { createMainWindow, markQuitting } from './window.js'
 import { createTray } from './tray.js'
 
 /** 端口解析超时（毫秒）：超过即判定启动失败。 */
@@ -50,6 +51,9 @@ if (!app.requestSingleInstanceLock()) {
       win.focus()
     }
   })
+  // 应用级退出置位：主窗口 close 处理器据此放行（否则隐藏到托盘的窗口会
+  // preventDefault 掉 app.quit()，托盘「退出」点击后应用不退出）。
+  app.on('before-quit', () => { markQuitting() })
   void bootstrap()
 }
 
@@ -81,9 +85,15 @@ async function bootstrap() {
     // 私有运行时 shim（clear-env + node.cmd + pnpm.cmd）。
     const require = createRequire(import.meta.url)
     const electronVersion = String(process.versions.electron ?? '')
+    // 随包分发的真 node.exe（dist 拷入 <root>/resources/runtime/，extraResources）：
+    // pnpm shim 优先用它执行（RunAsNode 下 pnpm 的 SQLite store 索引不可控）。
+    const bundledNode = isPackaged
+      ? join(process.resourcesPath ?? '', 'runtime', 'node.exe')
+      : ''
     const shims = writeRuntimeShims({
       userDataDir,
       appExecutable: process.execPath,
+      nodeExecutable: isPackaged && existsSync(bundledNode) ? bundledNode : process.execPath,
       electronVersion,
       pnpmBinPath: isPackaged ? unpackedAsarPath(resolvePnpmBin()) : resolvePnpmBin(),
     })

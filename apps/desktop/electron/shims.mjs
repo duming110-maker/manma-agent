@@ -82,13 +82,12 @@ function windowsNodeShim(appExecutable, clearEnvironmentUrl) {
   ].join('\r\n')
 }
 
-/** Windows pnpm.cmd（PATH 上的 pnpm；设 RUN_AS_NODE + npm_config_* 后跑 pnpm）。 */
+/** Windows pnpm.cmd（PATH 上的 pnpm；优先用随包分发的真 node.exe 跑 pnpm）。 */
 function windowsPnpmShim(
-  appExecutable,
+  nodeExecutable,
   nodeBinDir,
   nodeShimPath,
   pnpmBinPath,
-  clearEnvironmentUrl,
   electronVersion,
 ) {
   return [
@@ -100,7 +99,7 @@ function windowsPnpmShim(
     'set "npm_config_runtime=electron"',
     `set "npm_config_target=${escapeBatchSetValue(electronVersion)}"`,
     `set "npm_config_disturl=${ELECTRON_HEADERS_URL}"`,
-    `${quoteBatchWord(appExecutable)} --import ${quoteBatchWord(clearEnvironmentUrl)} ${quoteBatchWord(pnpmBinPath)} %*`,
+    `${quoteBatchWord(nodeExecutable)} ${quoteBatchWord(pnpmBinPath)} %*`,
     'exit /b %errorlevel%',
     '',
   ].join('\r\n')
@@ -121,14 +120,17 @@ export function writeRuntimeShims(options) {
   const clearEnvUrl = pathToFileURL(clearEnvPath).href
   writeFileSync(clearEnvPath, clearEnvironmentModule(), { encoding: 'utf8' })
   writeFileSync(nodeShimPath, windowsNodeShim(options.appExecutable, clearEnvUrl), { encoding: 'utf8' })
+  // pnpm 用真 node 跑（options.nodeExecutable 存在时；否则回退 Electron 二进制）：
+  // pnpm 11 的 store 索引用 SQLite，Electron-as-node 运行时行为不可控，曾致
+  // packaged 首启 `dsh plugin add` 失败（实体已落、bundle 未注册，次启「装上了
+  // 但不加载」）。真 node 下 SQLite/原生模块/子进程全部走标准 Node 语义。
   writeFileSync(
     pnpmShimPath,
     windowsPnpmShim(
-      options.appExecutable,
+      options.nodeExecutable ?? options.appExecutable,
       runtimeDir,
       nodeShimPath,
       options.pnpmBinPath,
-      clearEnvUrl,
       options.electronVersion,
     ),
     { encoding: 'utf8' },

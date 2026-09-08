@@ -8,7 +8,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createRequire } from 'node:module'
 import { DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
@@ -16,8 +16,29 @@ import { DESKTOP_DIR, REPO_ROOT } from '../src/branding.mjs'
 /** bc 插件清单（与 launcher 的 BC_PLUGINS 对应）。 */
 const PLUGINS = ['@bc-agent/web-ui', '@bc-agent/capability-core', '@bc-agent/file-open']
 
-/** 外部 npm 插件清单（从 node_modules 中打包出 tgz 并随 Electron 分发）。 */
+/** 外部 npm 插件清单（从已安装位置打包出 tgz 并随 Electron 分发）。 */
 const EXTERNAL_PLUGINS = ['dsh-better-sidebar']
+
+/**
+ * 定位外部插件的实体目录：先查 workspace/desktop 的 node_modules（若曾作为普通
+ * 依赖引入），否则落到 dev profile（`dsh plugin add` 的安装位置，DSH_HOME 默认
+ * `apps/desktop/.data/dsh-home`）。找不到即抛错——外部插件必须先装进 dev profile
+ * 才能被 dist 打包分发。
+ */
+function externalPluginDir(pkgName) {
+  const require = createRequire(import.meta.url)
+  try {
+    const pkgJsonPath = require.resolve(`${pkgName}/package.json`, { paths: [REPO_ROOT, DESKTOP_DIR] })
+    return dirname(pkgJsonPath)
+  } catch { /* fall through to dev profile */ }
+  const profileRoot = join(
+    process.env.DSH_HOME?.trim() || join(DESKTOP_DIR, '.data', 'dsh-home'),
+    'profiles', 'web', 'node_modules',
+  )
+  const candidate = join(profileRoot, ...pkgName.split('/'))
+  if (existsSync(join(candidate, 'package.json'))) return candidate
+  throw new Error(`pack-plugins: external plugin ${pkgName} not found; install it first (dsh plugin add ${pkgName})`)
+}
 
 /** 是否 Windows（pnpm 需 .cmd）。 */
 const shell = process.platform === 'win32'
@@ -42,14 +63,10 @@ export function packPlugins(options) {
     if (pack.status !== 0) throw new Error(`pack-plugins: pack failed for ${pkg}`)
   }
 
-  // 2. 将外部 npm 包打包为 tgz 输出到 pluginsDir
-  const require = createRequire(import.meta.url)
+  // 2. 将外部 npm 插件打包为 tgz 输出到 pluginsDir
   for (const extPkg of EXTERNAL_PLUGINS) {
-    // 自动在 node_modules 中查找包的真实路径
-    const pkgJsonPath = require.resolve(`${extPkg}/package.json`, { paths: [REPO_ROOT, DESKTOP_DIR] })
-    const extPkgDir = dirname(pkgJsonPath)
-
-    // 在外部包所在目录下打包导出 tgz
+    const extPkgDir = externalPluginDir(extPkg)
+    // 在外部插件实体目录下打包导出 tgz（文件名 `<name>-<version>.tgz`）。
     const packExt = spawnSync('npm', ['pack', '--pack-destination', pluginsDir], { cwd: extPkgDir, env, stdio: 'inherit', shell })
     if (packExt.status !== 0) throw new Error(`pack-plugins: pack external failed for ${extPkg}`)
   }
