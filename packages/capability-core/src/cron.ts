@@ -240,6 +240,63 @@ export function listCronRuns(): { ok: true; value: unknown } {
 }
 
 // ---------------------------------------------------------------------------
+// templates (built-in preset roster)
+// ---------------------------------------------------------------------------
+
+/**
+ * One built-in cron template (docs/spec-v0.8-archive/04-spec §4.2). Templates
+ * are read-only examples that guide task creation: the UI pre-fills the task
+ * form from one, and the user edits before creating. User-manageable
+ * templates are deferred — the preset roster is a static constant (the
+ * skill-market manifest posture), not a store.
+ */
+export interface CronTemplate {
+  id: string
+  name: string
+  /** What the template does — card copy, and the pre-filled task description. */
+  description: string
+  /** The example instruction — pre-fills the task prompt. */
+  prompt: string
+  /** The default schedule — pre-fills the frequency picker. */
+  defaultCronExpr: string
+}
+
+/**
+ * The bundled roster (spec §4.2: 日报/周报/月度盘点). Name/description/prompt
+ * are product content, not UI chrome, so they stay zh-only like the market
+ * manifest entries. Every expression round-trips through the UI's cron
+ * parser (parseCronExpression) — the frequency picker, never raw cron.
+ */
+export const BUILTIN_CRON_TEMPLATES: readonly CronTemplate[] = [
+  {
+    id: 'daily-report',
+    name: '每日工作日报',
+    description: '每个工作日傍晚自动总结当天工作内容，生成一份结构化日报。',
+    prompt: '请查看当前工作区的文件与 git 变更，总结今天完成的工作、进行中的事项和遇到的问题，生成一份简洁的中文日报。',
+    defaultCronExpr: '0 18 * * *',
+  },
+  {
+    id: 'weekly-report',
+    name: '每周工作周报',
+    description: '每周五下班前汇总本周工作进展，生成周报草稿。',
+    prompt: '请汇总本周的工作进展：完成的任务、关键产出、下周计划与风险，结合工作区内容生成一份中文周报。',
+    defaultCronExpr: '0 17 * * 5',
+  },
+  {
+    id: 'monthly-review',
+    name: '月度工作盘点',
+    description: '每月 1 日上午盘点上月工作成果，生成月度总结。',
+    prompt: '请盘点本月的工作成果与经验教训：对比月初目标，总结关键产出、遇到的问题和可沉淀的经验，生成一份中文月度总结。',
+    defaultCronExpr: '0 9 1 * *',
+  },
+]
+
+/** List the built-in template roster (read-only; the UI fills the task form). */
+export function listCronTemplates(): { ok: true; value: unknown } {
+  return { ok: true, value: { ok: true, templates: BUILTIN_CRON_TEMPLATES } }
+}
+
+// ---------------------------------------------------------------------------
 // scheduler
 // ---------------------------------------------------------------------------
 

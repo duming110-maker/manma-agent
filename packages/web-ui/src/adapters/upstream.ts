@@ -213,6 +213,8 @@ export interface UpstreamFace {
   runCronTask(id: string): Promise<UpstreamCronRun>
   /** List the recorded runs (newest first). */
   listCronRuns(): Promise<UpstreamCronRun[]>
+  /** List the built-in cron template roster (host `cron.templates.list`; read-only examples). */
+  listCronTemplates(): Promise<UpstreamCronTemplate[]>
   /**
    * List the model catalog (host `llm.models` — session-independent groups
    * across every provider route), flattened to selectable options for the
@@ -358,6 +360,18 @@ export interface UpstreamCronTask {
   createdAt: string
   /** The scheduler's next occurrence (host-computed; absent when invalid/disabled). */
   nextRunAt: string | undefined
+}
+
+/** One built-in cron template (read-only example; pre-fills the create form). */
+export interface UpstreamCronTemplate {
+  id: string
+  name: string
+  /** What the template does — card copy, and the pre-filled task description. */
+  description: string
+  /** The example instruction — pre-fills the task prompt. */
+  prompt: string
+  /** The default schedule — pre-fills the frequency picker. */
+  defaultCronExpr: string
 }
 
 /** One recorded cron run (real execution: queued → running → success/failed). */
@@ -961,6 +975,11 @@ export function createUpstreamFace(ctx: Context): UpstreamInjectFace {
       const result = await extCall('/ext', 'cron.runs.list', {})
       if (!result.ok) throw new Error(`bc-web-ui: cron.runs.list rejected: ${result.error.code}: ${result.error.message}`)
       return (result.value as { ok: true; runs: UpstreamCronRun[] }).runs
+    },
+    listCronTemplates: async () => {
+      const result = await extCall('/ext', 'cron.templates.list', {})
+      if (!result.ok) throw new Error(`bc-web-ui: cron.templates.list rejected: ${result.error.code}: ${result.error.message}`)
+      return (result.value as { ok: true; templates: UpstreamCronTemplate[] }).templates
     },
     listModels: async () => {
       const result = await remote.session.modelCatalog()

@@ -21,6 +21,7 @@
  * - `cron.tasks.delete`    remove one stored task
  * - `cron.tasks.run`       queue a manual run (real execution, not a stub)
  * - `cron.runs.list`       read the run-history store
+ * - `cron.templates.list`  read the built-in template roster (read-only)
  * - `scene.editors.list`   enumerate installed editors + the default open method
  * - `scene.default.set`    persist the default "open with" method
  * - `scene.editor.open`    launch one editor on a directory
@@ -57,7 +58,7 @@ import {
 import { installMarketEntry } from './market.ts'
 import {
   createCronTask, listCronTasks, updateCronTask, deleteCronTask, listCronRuns,
-  runCronTaskNow, startCronScheduler, createSchedulerState, type CronHostServices,
+  listCronTemplates, runCronTaskNow, startCronScheduler, createSchedulerState, type CronHostServices,
 } from './cron.ts'
 import { KrmService, registerInjection } from './krm.ts'
 import { createMemoryTool } from './memory-tool.ts'
@@ -178,6 +179,9 @@ function createHandler(ctx: Context, krm: KrmService): ConnectionRpcHandler {
       }
       case 'cron.runs.list':
         return listCronRuns() as never
+      // cron templates (built-in preset roster, read-only)
+      case 'cron.templates.list':
+        return listCronTemplates() as never
       // scene editor (detect local IDEs + remember the default open method)
       case 'scene.editors.list':
         return { ok: true, value: { editors: listInstalledEditors(), defaultOpen: readDefaultOpen() } } as never

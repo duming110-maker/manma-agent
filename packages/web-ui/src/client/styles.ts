@@ -567,9 +567,10 @@ body[data-ds-dark-theme] .bc-web-ui-frame {
   gap: 8px;
   box-sizing: border-box;
   height: 44px;
-  /* 右侧预留 99px：dsh-better-sidebar 的开关簇固定悬浮在视口右上角
-     （right:10px，两个 28px 按钮 ≈ 60px 宽），头部的「打开/归档」按钮继续
-     靠右对齐，但整体让出该保留带（按钮右缘距视口右缘 99px）。 */
+  /* Reserve 99px on the right: the dsh-better-sidebar toggle cluster floats
+     fixed at the viewport top-right (right:10px, two 28px buttons ≈ 60px
+     wide); the header's open/archive buttons stay right-aligned but yield the
+     reserved band (their right edge sits 99px from the viewport edge). */
   padding: 0 99px 0 24px;
   border-bottom: 1px solid var(--bc-border);
   background: var(--bc-bg-card);
@@ -656,7 +657,7 @@ body[data-ds-dark-theme] .bc-web-ui-frame {
   background: var(--bc-fill-hover-strong);
   color: var(--bc-text-secondary);
 }
-/* The「打开」split button (default open-with method + chooser). The wrapper is
+/* The open split button (default open-with method + chooser). The wrapper is
    the positioning + outside-click containment scope; the menu is an absolute
    popover riding just under the 44px header. */
 .bc-web-ui-session-header-open {
