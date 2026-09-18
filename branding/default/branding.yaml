@@ -6,14 +6,15 @@
 # UI 文案字典按语言分键 { zh, en }。
 
 product:
-  # 产品名词典（docs/03 §9：UI 文案字典按语言分键）。默认品牌中英同名，
-  # 按单值提供（packages/web-ui/build.mjs 归一化为 { zh, en }）；中英不同
-  # 名的品牌改用分键形式：
-  #   name: { zh: "中文名", en: "English Name" }
-  name: "BC Agent"
+  # 产品名词典（docs/03 §9：UI 文案字典按语言分键）。中文「慢码」/ 西文
+  # 「MANMA」不同名，按 { zh, en } 分键形式（UI 侧栏品牌名与 document.title
+  # 按 locale 取值；packages/web-ui/build.mjs 亦接受单值形式并归一化）。
+  name: { zh: "慢码", en: "MANMA" }
 
 window:
-  title: "BC Agent"
+  # 窗口标题兜底值（桌面解析器只接受单值字符串；页面加载后由 UI 按
+  # locale 覆写 document.title）。
+  title: "慢码"
 
 theme:
   # 主色三档（亮色表）——P2-a 裁决：--bc-color-primary 系从 branding 取源，
@@ -34,13 +35,13 @@ theme:
 desktop:
   # 数据目录标识：per-brand 独立 DSH_HOME = %APPDATA%/<brandId>/dsh-home
   #（品牌间数据隔离 + 卸载可判定，docs/03 §9）。随品牌变。
-  brandId: "bc-agent"
+  brandId: "manma"
   # electron-builder 稳定升级身份（AppUserModelId）。随品牌变。
-  appId: "ai.bcagent.desktop"
+  appId: "ai.manma.desktop"
   # 安装目录/快捷方式/窗口/进程显示名（ASCII）。随品牌变。
-  productName: "BC Agent"
+  productName: "MANMA"
   # 安装包文件名前缀（filesystem-safe，作为 NSIS artifactName 前缀）。随品牌变。
-  executableName: "BC-Agent"
+  executableName: "MANMA"
   # 应用图标（PNG ≥256）与托盘图标，相对 branding/<name>/ 目录。随品牌变。
   icon: "icon.png"
   trayIcon: "tray-icon.png"

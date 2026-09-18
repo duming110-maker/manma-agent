@@ -1,0 +1,74 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e5]:
+      - link "慢码 logo 慢码 MANMA" [ref=f1e6] [cursor=pointer]:
+        - /url: /
+        - img "慢码 logo" [ref=f1e7]
+        - generic [ref=f1e8]: 慢码 MANMA
+      - navigation [ref=f1e9]:
+        - link "首页" [ref=f1e10] [cursor=pointer]:
+          - /url: /
+        - link "商业产品" [ref=f1e11] [cursor=pointer]:
+          - /url: /products
+        - link "开源" [ref=f1e12] [cursor=pointer]:
+          - /url: /open-source
+        - link "关于我们" [ref=f1e13] [cursor=pointer]:
+          - /url: /about
+  - main [ref=f1e14]:
+    - generic [ref=f1e15]:
+      - generic [ref=f1e16]:
+        - generic [ref=f1e17]: 关于我们
+        - heading "你好，我们是慢码" [level=2] [ref=f1e18]
+        - paragraph [ref=f1e19]: 一支专注 AI 落地应用的小团队。
+      - generic [ref=f1e21]:
+        - paragraph [ref=f1e22]:
+          - text: 「慢码」取自
+          - strong [ref=f1e23]: 慢工出细活，码上见真章
+          - text: 。 我们相信 AI 的价值不在概念多新，而在能不能真正帮普通人省时间、多赚钱。
+        - paragraph [ref=f1e24]:
+          - text: 所以我们只做两类软件：
+          - strong [ref=f1e25]: 给小老板的开箱即用工具
+          - text: （如慢码混剪平台），以及
+          - strong [ref=f1e26]: 数据可私有的开源软件
+          - text: （如「慢码（MANMA）」）。商业产品负责稳定好用，开源项目负责透明可信。
+      - generic [ref=f1e28]:
+        - generic [ref=f1e30]:
+          - img "慢码微信二维码" [ref=f1e31]
+          - paragraph [ref=f1e32]: 微信联系
+          - paragraph [ref=f1e33]: 扫码添加微信
+        - generic [ref=f1e35]:
+          - generic [ref=f1e36]: ⏱️
+          - paragraph [ref=f1e37]: 响应时间
+          - paragraph [ref=f1e38]: 工作日 9:00 - 18:00
+      - link "看看我们在做什么" [ref=f1e40] [cursor=pointer]:
+        - /url: /products
+  - contentinfo [ref=f1e41]:
+    - generic [ref=f1e42]:
+      - generic [ref=f1e43]:
+        - generic [ref=f1e44]:
+          - img "慢码 logo" [ref=f1e45]
+          - generic [ref=f1e46]: 慢码 MANMA
+        - paragraph [ref=f1e47]: 聚焦 AI 落地应用，为小老板与个人用户打造开箱即用的桌面软件。
+      - generic [ref=f1e48]:
+        - heading "导航" [level=3] [ref=f1e49]
+        - list [ref=f1e50]:
+          - listitem [ref=f1e51]:
+            - link "商业产品" [ref=f1e52] [cursor=pointer]:
+              - /url: /products
+          - listitem [ref=f1e53]:
+            - link "开源项目" [ref=f1e54] [cursor=pointer]:
+              - /url: /open-source
+          - listitem [ref=f1e55]:
+            - link "关于我们" [ref=f1e56] [cursor=pointer]:
+              - /url: /about
+          - listitem [ref=f1e57]:
+            - link "GitHub ↗" [ref=f1e58] [cursor=pointer]:
+              - /url: https://github.com/duming110-maker/manma-agent
+      - generic [ref=f1e59]:
+        - heading "联系" [level=3] [ref=f1e60]
+        - paragraph [ref=f1e61]:
+          - text: 微信联系：进入「
+          - link "关于我们" [ref=f1e62] [cursor=pointer]:
+            - /url: /about
+          - text: 」页扫码添加。
+    - generic [ref=f1e63]: © 2026 慢码 MANMA · 让 AI 落到每一间小店铺
